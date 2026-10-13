@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sheet To-Do</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg">
+<meta name="theme-color" content="#1a73e8">
+<style>
+  :root { --bg:#fff; --fg:#202124; --mut:#5f6368; --line:#e0e0e0; --acc:#1a73e8; --card:#f8f9fa; --bad:#d93025; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#16181b; --fg:#e8eaed; --mut:#9aa0a6; --line:#3c4043; --acc:#8ab4f8; --card:#202327; --bad:#f28b82; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.4 system-ui,sans-serif; }
+  main { max-width:720px; margin:0 auto; padding:16px; }
+  header { display:flex; align-items:center; gap:8px; margin-bottom:12px; }
+  h1 { font-size:20px; margin:0; flex:1; }
+  button, select, input, textarea { font:inherit; color:inherit; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:8px 10px; }
+  button { cursor:pointer; } button.primary { background:var(--acc); color:#fff; border-color:var(--acc); }
+  #status { color:var(--mut); font-size:13px; margin-bottom:8px; min-height:18px; }
+  form#add { display:grid; grid-template-columns:1fr auto auto; gap:8px; margin-bottom:12px; }
+  @media (max-width:520px) { form#add { grid-template-columns:1fr 1fr; } form#add input[name=task] { grid-column:1/-1; } }
+  .filters { display:flex; gap:6px; margin-bottom:12px; flex-wrap:wrap; }
+  .filters button.on { background:var(--acc); color:#fff; border-color:var(--acc); }
+  .item { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin-bottom:8px; }
+  .row { display:flex; align-items:center; gap:10px; }
+  .row .t { flex:1; word-break:break-word; } .done .t { text-decoration:line-through; color:var(--mut); }
+  .due { font-size:13px; color:var(--mut); } .due.over { color:var(--bad); font-weight:600; }
+  .notes { color:var(--mut); font-size:14px; margin:6px 0 0 30px; white-space:pre-wrap; }
+  .edit { display:grid; gap:8px; margin-top:8px; } .edit .two { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .edit .btns { display:flex; gap:8px; justify-content:space-between; }
+  input[type=checkbox] { width:22px; height:22px; }
+  dialog { border:1px solid var(--line); border-radius:12px; background:var(--bg); color:var(--fg); max-width:420px; width:calc(100% - 32px); }
+  dialog label { display:block; margin:8px 0 4px; font-size:14px; } dialog input { width:100%; }
+</style>
+</head>
+<body>
+<main>
+  <header><h1>To-Do</h1><button id="refresh" title="Sync now">⟳</button><button id="cfg" title="Settings">⚙</button></header>
+  <div id="status"></div>
+  <form id="add">
+    <input name="task" placeholder="New task…" required autocomplete="off">
+    <input name="due" type="date" title="Due date">
+    <button class="primary">Add</button>
+  </form>
+  <div class="filters" id="filters"></div>
+  <div id="list"></div>
+</main>
+
+<dialog id="dlg">
+  <form method="dialog" id="cfgForm">
+    <h3>Connect to your sheet</h3>
+    <label>Web app URL</label><input name="url" placeholder="https://script.google.com/macros/s/…/exec">
+    <label>Secret token</label><input name="token" type="password">
+    <p style="text-align:right"><button value="cancel">Cancel</button> <button class="primary" value="ok">Save</button></p>
+  </form>
+</dialog>
+
+<script>
+const $ = s => document.querySelector(s);
+const STATUSES = ['Todo', 'Doing', 'Done'];
+const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
+const save = (k, v) => localStorage.setItem(k, JSON.stringify(v));
+let cfg = load('cfg', {}), tasks = load('tasks', []), queue = load('queue', []), filter = 'Open', editing = null, syncing = false;
+
+const uuid = () => crypto.randomUUID ? crypto.randomUUID() : 'id-' + Date.now() + Math.random().toString(16).slice(2);
+const today = () => new Date().toLocaleDateString('en-CA');
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
+const setStatus = m => $('#status').textContent = m;
+
+async function call(body) {
+  const r = await fetch(cfg.url, { method: 'POST', body: JSON.stringify({ token: cfg.token, ...body }) }); // text/plain => no CORS preflight
+  const j = await r.json();
+  if (!j.ok) throw new Error(j.error || 'request failed');
+  return j.tasks;
+}
+
+async function sync() {
+  if (!cfg.url || !cfg.token) { setStatus('Tap ⚙ to connect your sheet.'); return; }
+  if (syncing) return; syncing = true;
+  try {
+    setStatus('Syncing…');
+    let server;
+    while (queue.length) { server = await call(queue[0]); queue.shift(); save('queue', queue); }
+    server = server || await call({ action: 'list' });
+    if (!queue.length) { tasks = server; save('tasks', tasks); }
+    setStatus('Synced ' + new Date().toLocaleTimeString());
+  } catch (e) {
+    setStatus((navigator.onLine ? 'Sync error: ' + e.message : 'Offline') + (queue.length ? ` · ${queue.length} change(s) pending` : ''));
+  } finally { syncing = false; render(); }
+}
+
+function upsert(t) {
+  const i = tasks.findIndex(x => x.id === t.id);
+  if (i < 0) tasks.unshift(t); else tasks[i] = t;
+  save('tasks', tasks); queue.push({ action: 'upsert', task: t }); save('queue', queue); render(); sync();
+}
+function del(id) {
+  tasks = tasks.filter(t => t.id !== id); save('tasks', tasks);
+  queue.push({ action: 'delete', id }); save('queue', queue); render(); sync();
+}
+
+function render() {
+  $('#filters').innerHTML = ['Open', ...STATUSES, 'All'].map(f => `<button data-f="${f}" class="${f === filter ? 'on' : ''}">${f}</button>`).join('');
+  const shown = tasks.filter(t => filter === 'All' ? true : filter === 'Open' ? t.status !== 'Done' : t.status === filter)
+    .sort((a, b) => (a.status === 'Done') - (b.status === 'Done') || (a.due || '9999').localeCompare(b.due || '9999'));
+  $('#list').innerHTML = shown.map(t => {
+    const over = t.due && t.status !== 'Done' && t.due < today();
+    const ed = editing === t.id;
+    return `<div class="item ${t.status === 'Done' ? 'done' : ''}" data-id="${t.id}">
+      <div class="row"><input type="checkbox" data-a="toggle" ${t.status === 'Done' ? 'checked' : ''}>
+        <span class="t" data-a="edit">${esc(t.task)}${t.status === 'Doing' ? ' <small>(doing)</small>' : ''}</span>
+        <span class="due ${over ? 'over' : ''}">${esc(t.due)}</span></div>
+      ${t.notes && !ed ? `<div class="notes">${esc(t.notes)}</div>` : ''}
+      ${ed ? `<div class="edit"><input name="task" value="${esc(t.task)}">
+        <div class="two"><input name="due" type="date" value="${esc(t.due)}">
+        <select name="status">${STATUSES.map(s => `<option ${s === t.status ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
+        <textarea name="notes" rows="3" placeholder="Notes">${esc(t.notes)}</textarea>
+        <div class="btns"><button data-a="del">Delete</button><span><button data-a="cancel">Cancel</button> <button class="primary" data-a="save">Save</button></span></div></div>` : ''}
+    </div>`;
+  }).join('') || '<p style="color:var(--mut)">Nothing here.</p>';
+}
+
+$('#add').addEventListener('submit', e => {
+  e.preventDefault(); const f = e.target;
+  upsert({ id: uuid(), task: f.task.value.trim(), status: 'Todo', due: f.due.value, notes: '', updated_at: new Date().toISOString() });
+  f.reset(); f.task.focus();
+});
+$('#filters').addEventListener('click', e => { if (e.target.dataset.f) { filter = e.target.dataset.f; render(); } });
+$('#list').addEventListener('click', e => {
+  const a = e.target.closest('[data-a]')?.dataset.a, item = e.target.closest('.item'); if (!a || !item) return;
+  const t = tasks.find(x => x.id === item.dataset.id);
+  if (a === 'toggle') upsert({ ...t, status: t.status === 'Done' ? 'Todo' : 'Done' });
+  else if (a === 'edit') { editing = editing === t.id ? null : t.id; render(); }
+  else if (a === 'cancel') { editing = null; render(); }
+  else if (a === 'del') { if (confirm('Delete this task?')) { editing = null; del(t.id); } }
+  else if (a === 'save') {
+    const q = n => item.querySelector(`[name=${n}]`).value; editing = null;
+    upsert({ ...t, task: q('task').trim() || t.task, due: q('due'), status: q('status'), notes: q('notes') });
+  }
+});
+$('#refresh').onclick = sync;
+$('#cfg').onclick = () => { const f = $('#cfgForm'); f.url.value = cfg.url || ''; f.token.value = cfg.token || ''; $('#dlg').showModal(); };
+$('#dlg').addEventListener('close', () => {
+  if ($('#dlg').returnValue !== 'ok') return;
+  const f = $('#cfgForm'); cfg = { url: f.url.value.trim(), token: f.token.value.trim() }; save('cfg', cfg); sync();
+});
+document.addEventListener('visibilitychange', () => { if (!document.hidden && !editing) sync(); });
+window.addEventListener('online', sync);
+setInterval(() => { if (!document.hidden && !editing) sync(); }, 30000);
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
+render(); sync();
+</script>
+</body>
+</html>
