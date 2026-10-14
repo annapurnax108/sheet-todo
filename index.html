@@ -59,15 +59,20 @@ body, button, select, input, textarea { text-transform: lowercase; }
 
 <script>
 const $ = s => document.querySelector(s);
-const STATUSES = ['Todo', 'Doing', 'Done'];
+const STATUSES = ['todo', 'doing', 'done'];
 const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
 const save = (k, v) => localStorage.setItem(k, JSON.stringify(v));
-let cfg = load('cfg', {}), tasks = load('tasks', []), queue = load('queue', []), filter = 'Open', editing = null, syncing = false;
+const norm = t => ({ ...t, status: String(t.status || 'todo').toLowerCase() }); // sheet may hold Done/done
+let cfg = load('cfg', {}), tasks = load('tasks', []).map(norm), queue = load('queue', []), filter = 'Open', editing = null, syncing = false;
 
 const uuid = () => crypto.randomUUID ? crypto.randomUUID() : 'id-' + Date.now() + Math.random().toString(16).slice(2);
 const today = () => new Date().toLocaleDateString('en-CA');
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
 const setStatus = m => $('#status').textContent = m;
+// completed_at: keep an existing date if already Done, set today on becoming Done, clear on reopening
+const withStatus = (t, status) => ({ ...t, status, completed_at: status !== 'done' ? '' : (t.status === 'done' && t.completed_at) || today() });
+// pre-fill the add form's due date with today (and roll it over if the app stays open past midnight)
+function setDueDefault() { const i = $('#add').due, d = today(); if (!i.value || i.value === i.defaultValue) i.value = d; i.defaultValue = d; }
 
 async function call(body) {
   const r = await fetch(cfg.url, { method: 'POST', body: JSON.stringify({ token: cfg.token, ...body }) }); // text/plain => no CORS preflight
@@ -84,7 +89,7 @@ async function sync() {
     let server;
     while (queue.length) { server = await call(queue[0]); queue.shift(); save('queue', queue); }
     server = server || await call({ action: 'list' });
-    if (!queue.length) { tasks = server; save('tasks', tasks); }
+    if (!queue.length) { tasks = server.map(norm); save('tasks', tasks); }
     setStatus('Synced ' + new Date().toLocaleTimeString());
   } catch (e) {
     setStatus((navigator.onLine ? 'Sync error: ' + e.message : 'Offline') + (queue.length ? ` · ${queue.length} change(s) pending` : ''));
@@ -102,16 +107,17 @@ function del(id) {
 }
 
 function render() {
-  $('#filters').innerHTML = ['Open', ...STATUSES, 'All'].map(f => `<button data-f="${f}" class="${f === filter ? 'on' : ''}">${f}</button>`).join('');
-  const shown = tasks.filter(t => filter === 'All' ? true : filter === 'Open' ? t.status !== 'Done' : t.status === filter)
-    .sort((a, b) => (a.status === 'Done') - (b.status === 'Done') || (a.due || '9999').localeCompare(b.due || '9999'));
+  $('#filters').innerHTML = ['Open', ...STATUSES, 'All', 'Today'].map(f => `<button data-f="${f}" class="${f === filter ? 'on' : ''}">${f}</button>`).join('');
+  const shown = tasks.filter(t => filter === 'All' ? true : filter === 'Open' ? t.status !== 'done' : filter === 'Today' ? t.status !== 'done' && t.due && t.due <= today() : t.status === filter)
+    .sort((a, b) => (a.status === 'done') - (b.status === 'done') || (a.due || '9999').localeCompare(b.due || '9999'));
   $('#list').innerHTML = shown.map(t => {
-    const over = t.due && t.status !== 'Done' && t.due < today();
+    const over = t.due && t.status !== 'done' && t.due < today();
     const ed = editing === t.id;
-    return `<div class="item ${t.status === 'Done' ? 'done' : ''}" data-id="${t.id}">
-      <div class="row"><input type="checkbox" data-a="toggle" ${t.status === 'Done' ? 'checked' : ''}>
-        <span class="t" data-a="edit">${esc(t.task)}${t.status === 'Doing' ? ' <small>(doing)</small>' : ''}</span>
-        <span class="due ${over ? 'over' : ''}">${esc(t.due)}</span></div>
+    return `<div class="item ${t.status === 'done' ? 'done' : ''}" data-id="${t.id}">
+      <div class="row"><input type="checkbox" data-a="toggle" ${t.status === 'done' ? 'checked' : ''}>
+        <span class="t" data-a="edit">${esc(t.task)}${t.status === 'doing' ? ' <small>(doing)</small>' : ''}</span>
+        <span class="due ${over ? 'over' : ''}">${esc(t.due)}</span>
+        ${t.status === 'done' && t.completed_at ? `<span class="due">done ${esc(t.completed_at)}</span>` : ''}</div>
       ${t.notes && !ed ? `<div class="notes">${esc(t.notes)}</div>` : ''}
       ${ed ? `<div class="edit"><input name="task" value="${esc(t.task)}">
         <div class="two"><input name="due" type="date" value="${esc(t.due)}">
@@ -124,20 +130,20 @@ function render() {
 
 $('#add').addEventListener('submit', e => {
   e.preventDefault(); const f = e.target;
-  upsert({ id: uuid(), task: f.task.value.trim(), status: 'Todo', due: f.due.value, notes: '', updated_at: new Date().toISOString() });
-  f.reset(); f.task.focus();
+  upsert({ id: uuid(), task: f.task.value.trim(), status: 'todo', due: f.due.value, notes: '', completed_at: '', updated_at: new Date().toISOString() });
+  f.reset(); setDueDefault(); f.task.focus();
 });
 $('#filters').addEventListener('click', e => { if (e.target.dataset.f) { filter = e.target.dataset.f; render(); } });
 $('#list').addEventListener('click', e => {
   const a = e.target.closest('[data-a]')?.dataset.a, item = e.target.closest('.item'); if (!a || !item) return;
   const t = tasks.find(x => x.id === item.dataset.id);
-  if (a === 'toggle') upsert({ ...t, status: t.status === 'Done' ? 'Todo' : 'Done' });
+  if (a === 'toggle') upsert(withStatus(t, t.status === 'done' ? 'todo' : 'done'));
   else if (a === 'edit') { editing = editing === t.id ? null : t.id; render(); }
   else if (a === 'cancel') { editing = null; render(); }
   else if (a === 'del') { if (confirm('Delete this task?')) { editing = null; del(t.id); } }
   else if (a === 'save') {
     const q = n => item.querySelector(`[name=${n}]`).value; editing = null;
-    upsert({ ...t, task: q('task').trim() || t.task, due: q('due'), status: q('status'), notes: q('notes') });
+    upsert({ ...withStatus(t, q('status')), task: q('task').trim() || t.task, due: q('due'), notes: q('notes') });
   }
 });
 $('#refresh').onclick = sync;
@@ -146,11 +152,11 @@ $('#dlg').addEventListener('close', () => {
   if ($('#dlg').returnValue !== 'ok') return;
   const f = $('#cfgForm'); cfg = { url: f.url.value.trim(), token: f.token.value.trim() }; save('cfg', cfg); sync();
 });
-document.addEventListener('visibilitychange', () => { if (!document.hidden && !editing) sync(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) setDueDefault(); if (!document.hidden && !editing) sync(); });
 window.addEventListener('online', sync);
 setInterval(() => { if (!document.hidden && !editing) sync(); }, 30000);
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
-render(); sync();
+setDueDefault(); render(); sync();
 </script>
 </body>
 </html>
