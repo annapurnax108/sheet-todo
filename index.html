@@ -15,7 +15,10 @@ body, button, select, input, textarea { text-transform: lowercase; }
   body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.4 system-ui,sans-serif; }
   main { max-width:720px; margin:0 auto; padding:16px; }
   header { display:flex; align-items:center; gap:8px; margin-bottom:12px; }
-  h1 { font-size:20px; margin:0; flex:1; }
+  h1 { font-size:20px; margin:0; }
+  #refresh { margin-left:auto; }
+  #searchRow { display:flex; gap:8px; margin-bottom:12px; } #searchRow[hidden] { display:none; } #q { flex:1; min-width:0; }
+  #searchBtn.on { background:var(--acc); color:#fff; border-color:var(--acc); }
   button, select, input, textarea { font:inherit; color:inherit; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:8px 10px; }
   button { cursor:pointer; } button.primary { background:var(--acc); color:#fff; border-color:var(--acc); }
   #status { color:var(--mut); font-size:13px; margin-bottom:8px; min-height:18px; }
@@ -37,7 +40,8 @@ body, button, select, input, textarea { text-transform: lowercase; }
 </head>
 <body>
 <main>
-  <header><h1>To-Do</h1><button id="refresh" title="Sync now">⟳</button><button id="cfg" title="Settings">⚙</button></header>
+  <header><h1>To-Do</h1><button id="searchBtn" title="Search" aria-label="Search">🔍</button><button id="refresh" title="Sync now">⟳</button><button id="cfg" title="Settings">⚙</button></header>
+  <div id="searchRow" hidden><input id="q" type="search" placeholder="search all tasks…" autocomplete="off"><button id="qx" aria-label="Close search">✕</button></div>
   <div id="status"></div>
   <form id="add">
     <input name="task" placeholder="New task…" required autocomplete="off">
@@ -63,7 +67,7 @@ const STATUSES = ['todo', 'doing', 'done'];
 const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
 const save = (k, v) => localStorage.setItem(k, JSON.stringify(v));
 const norm = t => ({ ...t, status: String(t.status || 'todo').toLowerCase() }); // sheet may hold Done/done
-let cfg = load('cfg', {}), tasks = load('tasks', []).map(norm), queue = load('queue', []), filter = 'Open', editing = null, syncing = false;
+let cfg = load('cfg', {}), tasks = load('tasks', []).map(norm), queue = load('queue', []), filter = 'Open', query = '', editing = null, syncing = false;
 
 const uuid = () => crypto.randomUUID ? crypto.randomUUID() : 'id-' + Date.now() + Math.random().toString(16).slice(2);
 const today = () => new Date().toLocaleDateString('en-CA');
@@ -108,8 +112,9 @@ function del(id) {
 
 function render() {
   $('#filters').innerHTML = ['Open', ...STATUSES, 'All', 'Today'].map(f => `<button data-f="${f}" class="${f === filter ? 'on' : ''}">${f}</button>`).join('');
-  const shown = tasks.filter(t => filter === 'All' ? true : filter === 'Open' ? t.status !== 'done' : filter === 'Today' ? t.status !== 'done' && t.due && t.due <= today() : t.status === filter)
+  const shown = tasks.filter(t => query ? ((t.task || '') + ' ' + (t.notes || '')).toLowerCase().includes(query) : filter === 'All' ? true : filter === 'Open' ? t.status !== 'done' : filter === 'Today' ? t.status !== 'done' && t.due && t.due <= today() : t.status === filter)
     .sort((a, b) => (a.status === 'done') - (b.status === 'done') || (a.due || '9999').localeCompare(b.due || '9999'));
+  $('#searchBtn').classList.toggle('on', !!query);
   $('#list').innerHTML = shown.map(t => {
     const over = t.due && t.status !== 'done' && t.due < today();
     const ed = editing === t.id;
@@ -125,7 +130,7 @@ function render() {
         <textarea name="notes" rows="3" placeholder="Notes">${esc(t.notes)}</textarea>
         <div class="btns"><button data-a="del">Delete</button><span><button data-a="cancel">Cancel</button> <button class="primary" data-a="save">Save</button></span></div></div>` : ''}
     </div>`;
-  }).join('') || '<p style="color:var(--mut)">Nothing here.</p>';
+  }).join('') || `<p style="color:var(--mut)">${query ? 'No matches.' : 'Nothing here.'}</p>`;
 }
 
 $('#add').addEventListener('submit', e => {
@@ -146,6 +151,14 @@ $('#list').addEventListener('click', e => {
     upsert({ ...withStatus(t, q('status')), task: q('task').trim() || t.task, due: q('due'), notes: q('notes') });
   }
 });
+function toggleSearch(open) {
+  const row = $('#searchRow'); open = open ?? row.hidden; row.hidden = !open;
+  if (open) $('#q').focus(); else { $('#q').value = ''; query = ''; render(); }
+}
+$('#searchBtn').onclick = () => toggleSearch();
+$('#qx').onclick = () => toggleSearch(false);
+$('#q').addEventListener('input', e => { query = e.target.value.trim().toLowerCase(); render(); });
+$('#q').addEventListener('keydown', e => { if (e.key === 'Escape') toggleSearch(false); });
 $('#refresh').onclick = sync;
 $('#cfg').onclick = () => { const f = $('#cfgForm'); f.url.value = cfg.url || ''; f.token.value = cfg.token || ''; $('#dlg').showModal(); };
 $('#dlg').addEventListener('close', () => {
