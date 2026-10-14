@@ -11,6 +11,7 @@
   :root { --bg:#fff; --fg:#202124; --mut:#5f6368; --line:#e0e0e0; --acc:#1a73e8; --card:#f8f9fa; --bad:#d93025; }
   @media (prefers-color-scheme: dark) { :root { --bg:#16181b; --fg:#e8eaed; --mut:#9aa0a6; --line:#3c4043; --acc:#8ab4f8; --card:#202327; --bad:#f28b82; } }
   * { box-sizing: border-box; }
+body, button, select, input, textarea { text-transform: lowercase; }
   body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.4 system-ui,sans-serif; }
   main { max-width:720px; margin:0 auto; padding:16px; }
   header { display:flex; align-items:center; gap:8px; margin-bottom:12px; }
