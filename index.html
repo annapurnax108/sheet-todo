@@ -119,7 +119,7 @@ function render() {
   $('#searchBtn').classList.toggle('on', !!query);
   $('#list').innerHTML = shown.map(t => {
     const over = t.due && t.status !== 'done' && t.due < today();
-    const soon = t.due && t.status !== 'done' && t.due >= today() && t.due <= inDays(7);
+    const soon = t.due && t.status !== 'done' && t.due > today() && t.due <= inDays(7);
     const ed = editing === t.id;
     return `<div class="item ${t.status === 'done' ? 'done' : ''}" data-id="${t.id}">
       <div class="row"><input type="checkbox" data-a="toggle" ${t.status === 'done' ? 'checked' : ''}>
