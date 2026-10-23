@@ -8,8 +8,8 @@
 <link rel="icon" href="icon.svg">
 <meta name="theme-color" content="#1a73e8">
 <style>
-  :root { --bg:#fff; --fg:#202124; --mut:#5f6368; --line:#e0e0e0; --acc:#1a73e8; --card:#f8f9fa; --bad:#d93025; --soon:#1a73e8; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#16181b; --fg:#e8eaed; --mut:#9aa0a6; --line:#3c4043; --acc:#8ab4f8; --card:#202327; --bad:#f28b82; --soon:#8ab4f8; } }
+  :root { --bg:#fff; --fg:#202124; --mut:#5f6368; --line:#e0e0e0; --acc:#1a73e8; --card:#f8f9fa; --bad:#d93025; --soon:#1a73e8; --tmrw:#e8710a; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#16181b; --fg:#e8eaed; --mut:#9aa0a6; --line:#3c4043; --acc:#8ab4f8; --card:#202327; --bad:#f28b82; --soon:#8ab4f8; --tmrw:#fcad70; } }
   * { box-sizing: border-box; }
 body, button, select, input, textarea { text-transform: lowercase; }
   body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.4 system-ui,sans-serif; }
@@ -29,7 +29,7 @@ body, button, select, input, textarea { text-transform: lowercase; }
   .item { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin-bottom:8px; }
   .row { display:flex; align-items:center; gap:10px; }
   .row .t { flex:1; word-break:break-word; } .done .t { text-decoration:line-through; color:var(--mut); }
-  .due { font-size:13px; color:var(--mut); } .due.over { color:var(--bad); font-weight:600; } .due.soon { color:var(--soon); font-weight:600; }
+  .due { font-size:13px; color:var(--mut); } .due.over { color:var(--bad); font-weight:600; } .due.soon { color:var(--soon); font-weight:600; } .due.tmrw { color:var(--tmrw); font-weight:600; }
   .notes { color:var(--mut); font-size:14px; margin:6px 0 0 30px; white-space:pre-wrap; }
   .edit { display:grid; gap:8px; margin-top:8px; } .edit .two { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
   .edit .btns { display:flex; gap:8px; justify-content:space-between; }
@@ -120,11 +120,12 @@ function render() {
   $('#list').innerHTML = shown.map(t => {
     const over = t.due && t.status !== 'done' && t.due < today();
     const soon = t.due && t.status !== 'done' && t.due > today() && t.due <= inDays(7);
+    const tmrw = soon && t.due === inDays(1);
     const ed = editing === t.id;
     return `<div class="item ${t.status === 'done' ? 'done' : ''}" data-id="${t.id}">
       <div class="row"><input type="checkbox" data-a="toggle" ${t.status === 'done' ? 'checked' : ''}>
         <span class="t" data-a="edit">${esc(t.task)}${t.status === 'doing' ? ' <small>(doing)</small>' : ''}</span>
-        <span class="due ${over ? 'over' : soon ? 'soon' : ''}">${esc(t.due)}</span>
+        <span class="due ${over ? 'over' : tmrw ? 'tmrw' : soon ? 'soon' : ''}">${esc(t.due)}</span>
         ${t.status === 'done' && t.completed_at ? `<span class="due">done ${esc(t.completed_at)}</span>` : ''}</div>
       ${t.notes && !ed ? `<div class="notes">${esc(t.notes)}</div>` : ''}
       ${ed ? `<div class="edit"><input name="task" value="${esc(t.task)}">
