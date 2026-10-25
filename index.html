@@ -180,7 +180,9 @@ function render() {
     + (moreOpen ? `<div class="frow">${MORE.map(fbtn).join('')}</div>` : '');
   const shown = tasks.filter(t => query ? ((t.task || '') + ' ' + (t.notes || '')).toLowerCase().includes(query) : filter === 'All' ? true : filter === 'Open' ? isOpen(t) : filter === 'Today' ? isOpen(t) && t.due && t.due <= today() : filter === 'Repeat' ? isOpen(t) && t.repeat : t.status === filter)
     .sort((a, b) => !isOpen(a) - !isOpen(b)
-      || (!isOpen(a) ? (b.completed_at || b.due || '').localeCompare(a.completed_at || a.due || '') : (a.due || '9999').localeCompare(b.due || '9999')));
+      || (filter === 'Today' && isOpen(a) ? !!a.repeat - !!b.repeat : 0) // Today: repeating tasks sink to the bottom
+      || (!isOpen(a) ? (b.completed_at || b.due || '').localeCompare(a.completed_at || a.due || '') || (b.updated_at || '').localeCompare(a.updated_at || '') // same day: latest change first
+        : (a.due || '9999').localeCompare(b.due || '9999')));
   $('#searchBtn').classList.toggle('on', !!query);
   $('#list').innerHTML = shown.map(t => {
     const over = t.due && isOpen(t) && t.due < today();
