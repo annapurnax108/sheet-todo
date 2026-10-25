@@ -139,7 +139,7 @@ function render() {
 
 $('#add').addEventListener('submit', e => {
   e.preventDefault(); const f = e.target;
-  upsert({ id: uuid(), task: f.task.value.trim(), status: 'todo', due: f.due.value, notes: '', completed_at: '', updated_at: new Date().toISOString() });
+  upsert({ id: uuid(), task: f.task.value.trim(), status: filter === 'doing' ? 'doing' : 'todo', due: f.due.value, notes: '', completed_at: '', updated_at: new Date().toISOString() });
   f.reset(); setDueDefault(); f.task.focus();
 });
 $('#filters').addEventListener('click', e => { if (e.target.dataset.f) { filter = e.target.dataset.f; render(); } });
