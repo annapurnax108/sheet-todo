@@ -51,12 +51,11 @@ body, button, select, input, textarea { text-transform: lowercase; }
   <form id="add">
     <input name="task" placeholder="New task…" required autocomplete="off">
     <input name="due" type="date" title="Due date">
-    <button class="primary">Add</button>
+    <select name="status"></select>
     <div id="more" class="edit" hidden>
-      <div class="two"><select name="status"></select><select name="repeat"></select></div>
-      <select name="repeat_from"></select>
+      <div class="two"><select name="repeat"></select><select name="repeat_from"></select></div>
       <textarea name="notes" rows="2" placeholder="Notes"></textarea>
-      <div class="btns"><button type="button" id="addClose">✕ close</button><button class="primary">add task</button></div>
+      <div class="btns"><button type="button" id="addClose">✕ close</button><button class="primary">add</button></div>
     </div>
   </form>
   <div class="filters" id="filters"></div>
@@ -201,7 +200,7 @@ addEl('repeat_from').innerHTML = '<option value="due">from due date</option><opt
 const setStatusDefault = () => addEl('status').value = filter === 'doing' || filter === 'done' ? filter : 'todo';
 let skipOpen = false;
 const focusTask = () => { skipOpen = true; addEl('task').focus(); skipOpen = false; };
-addEl('task').addEventListener('focus', () => { if (!skipOpen) $('#more').hidden = false; });
+['focus', 'click'].forEach(ev => addEl('task').addEventListener(ev, () => { if (!skipOpen) $('#more').hidden = false; }));
 $('#addClose').onclick = () => { $('#more').hidden = true; };
 addForm.addEventListener('keydown', e => { if (e.key === 'Escape') $('#more').hidden = true; });
 addForm.addEventListener('submit', e => {
