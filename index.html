@@ -24,6 +24,7 @@ body, button, select, input, textarea { text-transform: lowercase; }
   #status { color:var(--mut); font-size:13px; margin-bottom:8px; min-height:18px; }
   form#add { display:grid; grid-template-columns:1fr auto auto; gap:8px; margin-bottom:12px; }
   @media (max-width:520px) { form#add { grid-template-columns:1fr 1fr; } form#add input[name=task] { grid-column:1/-1; } }
+  #more { grid-column:1/-1; margin-top:0; } #more[hidden] { display:none; }
   .filters { display:flex; gap:6px; margin-bottom:12px; flex-wrap:wrap; }
   .filters button.on { background:var(--acc); color:#fff; border-color:var(--acc); }
   .item { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin-bottom:8px; }
@@ -48,6 +49,12 @@ body, button, select, input, textarea { text-transform: lowercase; }
     <input name="task" placeholder="New task…" required autocomplete="off">
     <input name="due" type="date" title="Due date">
     <button class="primary">Add</button>
+    <div id="more" class="edit" hidden>
+      <div class="two"><select name="status"></select><select name="repeat"></select></div>
+      <select name="repeat_from"></select>
+      <textarea name="notes" rows="2" placeholder="Notes"></textarea>
+      <div class="btns"><button type="button" id="addClose">Close</button></div>
+    </div>
   </form>
   <div class="filters" id="filters"></div>
   <div id="list"></div>
@@ -179,12 +186,26 @@ function render() {
   }).join('') || `<p style="color:var(--mut)">${query ? 'No matches.' : 'Nothing here.'}</p>`;
 }
 
-$('#add').addEventListener('submit', e => {
-  e.preventDefault(); const f = e.target;
-  upsert({ id: uuid(), task: f.task.value.trim(), status: filter === 'doing' ? 'doing' : 'todo', due: f.due.value, notes: '', completed_at: '', updated_at: new Date().toISOString() });
-  f.reset(); setDueDefault(); f.task.focus();
+// the add form's extra fields (status, repeat, notes) open when the task box is tapped
+const addForm = $('#add'), addEl = n => addForm.elements[n];
+addEl('status').innerHTML = ['todo', 'doing', 'done'].map(s => `<option>${s}</option>`).join('');
+addEl('repeat').innerHTML = REPEATS.map(r => `<option value="${r}">${r ? 'repeat ' + r : 'no repeat'}</option>`).join('');
+addEl('repeat_from').innerHTML = '<option value="due">from due date</option><option value="done">from completion</option>';
+const setStatusDefault = () => addEl('status').value = filter === 'doing' || filter === 'done' ? filter : 'todo';
+let skipOpen = false;
+const focusTask = () => { skipOpen = true; addEl('task').focus(); skipOpen = false; };
+addEl('task').addEventListener('focus', () => { if (!skipOpen) $('#more').hidden = false; });
+$('#addClose').onclick = () => { $('#more').hidden = true; };
+addForm.addEventListener('keydown', e => { if (e.key === 'Escape') $('#more').hidden = true; });
+addForm.addEventListener('submit', e => {
+  e.preventDefault();
+  const repeat = addEl('repeat').value, status = addEl('status').value;
+  const t = { id: uuid(), task: addEl('task').value.trim(), status: 'todo', due: addEl('due').value, notes: addEl('notes').value, completed_at: '',
+    repeat, repeat_from: repeat ? addEl('repeat_from').value : '', series: repeat ? uuid() : '', updated_at: new Date().toISOString() };
+  if (repeat && status === 'done') advance(t, 'done'); else upsert(withStatus(t, status));
+  addForm.reset(); setDueDefault(); setStatusDefault(); $('#more').hidden = true; focusTask();
 });
-$('#filters').addEventListener('click', e => { if (e.target.dataset.f) { filter = e.target.dataset.f; render(); } });
+$('#filters').addEventListener('click', e => { if (e.target.dataset.f) { filter = e.target.dataset.f; setStatusDefault(); render(); } });
 $('#list').addEventListener('click', e => {
   const a = e.target.closest('[data-a]')?.dataset.a, item = e.target.closest('.item'); if (!a || !item) return;
   const t = tasks.find(x => x.id === item.dataset.id);
@@ -218,7 +239,7 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) setD
 window.addEventListener('online', sync);
 setInterval(() => { if (!document.hidden && !editing) sync(); }, 30000);
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
-setDueDefault(); render(); sync();
+setDueDefault(); setStatusDefault(); render(); sync();
 </script>
 </body>
 </html>
