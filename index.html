@@ -88,7 +88,7 @@ const repeatOpt = r => r ? 'repeat ' + UNITS[r] + 's' : 'no repeat';
 const parseRepeat = r => { const [unit, n] = String(r || '').split('/'); return { unit, n: Math.max(1, parseInt(n, 10) || 1) }; };
 const fmtRepeat = (unit, n) => !unit ? '' : (n = Math.max(1, parseInt(n, 10) || 1)) > 1 ? `${unit}/${n}` : unit;
 const repeatLabel = r => { const { unit, n } = parseRepeat(r); return n > 1 ? `every ${n} ${UNITS[unit]}s` : unit; };
-const MAIN = ['Open', 'Today', 'doing', 'missed', 'Repeat'], MORE = ['todo', 'done', 'All']; // filter buttons: main row, and the ⋯ menu
+const MAIN = ['Open', 'Today', 'doing', 'missed', 'done'], MORE = ['todo', 'Repeat', 'All']; // filter buttons: main row, and the ⋯ menu
 let moreOpen = false;
 const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
 const save = (k, v) => localStorage.setItem(k, JSON.stringify(v));
@@ -176,7 +176,7 @@ function del(id) {
 
 function render() {
   const fbtn = f => `<button data-f="${f}" class="${f === filter ? 'on' : ''}"${f === 'Repeat' ? ' title="repeating" aria-label="repeating"' : ''}>${f === 'Repeat' ? '↻' : f}</button>`;
-  $('#filters').innerHTML = `<div class="frow">${MAIN.map(fbtn).join('')}<button data-more aria-label="more filters" class="${MORE.includes(filter) ? 'on' : ''}">${MORE.includes(filter) ? filter : '⋯'}</button></div>`
+  $('#filters').innerHTML = `<div class="frow">${MAIN.map(fbtn).join('')}<button data-more aria-label="more filters" class="${MORE.includes(filter) ? 'on' : ''}">${MORE.includes(filter) ? (filter === 'Repeat' ? '↻' : filter) : '⋯'}</button></div>`
     + (moreOpen ? `<div class="frow">${MORE.map(fbtn).join('')}</div>` : '');
   const shown = tasks.filter(t => query ? ((t.task || '') + ' ' + (t.notes || '')).toLowerCase().includes(query) : filter === 'All' ? true : filter === 'Open' ? isOpen(t) : filter === 'Today' ? isOpen(t) && t.due && t.due <= today() : filter === 'Repeat' ? isOpen(t) && t.repeat : t.status === filter)
     .sort((a, b) => !isOpen(a) - !isOpen(b)
