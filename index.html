@@ -25,7 +25,7 @@ body, button, select, input, textarea { text-transform: lowercase; }
   form#add { display:grid; grid-template-columns:1fr auto auto; gap:8px; margin-bottom:12px; }
   @media (max-width:520px) { form#add { grid-template-columns:1fr 1fr; } form#add input[name=task] { grid-column:1/-1; } }
   #more { grid-column:1/-1; margin-top:0; } #more[hidden] { display:none; }
-  #more .btns { display:grid; grid-template-columns:1fr; } #more .btns button { padding:12px; }
+  #more .btns { display:grid; grid-template-columns:1fr 2fr; gap:8px; } #more .btns button { padding:12px; }
   #addClose { border:2px solid var(--bad); color:var(--bad); font-weight:600; }
   .filters { margin-bottom:12px; } .frow { display:flex; gap:6px; overflow-x:auto; } .frow + .frow { margin-top:6px; }
   .filters button { flex:1 1 0; min-width:0; font-size:13px; padding:6px 2px; text-align:center; }
@@ -56,7 +56,7 @@ body, button, select, input, textarea { text-transform: lowercase; }
       <div class="two"><select name="status"></select><select name="repeat"></select></div>
       <select name="repeat_from"></select>
       <textarea name="notes" rows="2" placeholder="Notes"></textarea>
-      <div class="btns"><button type="button" id="addClose">✕ close</button></div>
+      <div class="btns"><button type="button" id="addClose">✕ close</button><button class="primary">add task</button></div>
     </div>
   </form>
   <div class="filters" id="filters"></div>
