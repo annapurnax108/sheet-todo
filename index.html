@@ -26,7 +26,7 @@ body, button, select, input, textarea { text-transform: lowercase; }
   @media (max-width:520px) { form#add { grid-template-columns:1fr 1fr; } form#add input[name=task] { grid-column:1/-1; } }
   #more { grid-column:1/-1; margin-top:0; } #more[hidden] { display:none; }
   .filters { margin-bottom:12px; } .frow { display:flex; gap:6px; overflow-x:auto; } .frow + .frow { margin-top:6px; }
-  .filters button { flex:none; font-size:14px; padding:6px 9px; }
+  .filters button { flex:1 1 0; min-width:0; font-size:14px; padding:6px 2px; text-align:center; }
   .filters button.on { background:var(--acc); color:#fff; border-color:var(--acc); }
   .item { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin-bottom:8px; }
   .row { display:flex; align-items:center; gap:10px; }
