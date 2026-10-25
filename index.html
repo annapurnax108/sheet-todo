@@ -36,6 +36,9 @@ body, button, select, input, textarea { text-transform: lowercase; }
   .due { font-size:13px; color:var(--mut); } .due.over { color:var(--bad); font-weight:600; } .due.soon { color:var(--soon); font-weight:600; } .due.tmrw { color:var(--tmrw); font-weight:600; }
   .rep { color:var(--mut); font-size:12px; margin:4px 0 0 30px; }
   .notes { color:var(--mut); font-size:14px; margin:6px 0 0 30px; white-space:pre-wrap; }
+  .edit > *, .edit .two > *, .three > *, #more > * { min-width:0; max-width:100%; }
+  .edit select, .edit input, .edit textarea { width:100%; }
+  .edit input[type=number] { padding-left:4px; padding-right:4px; text-align:center; }
   .three { display:grid; grid-template-columns:1fr 4.2em 1.3fr; gap:8px; } input:disabled { opacity:.45; }
   .edit { display:grid; gap:8px; margin-top:8px; } .edit .two { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
   .edit .btns { display:flex; gap:8px; justify-content:space-between; }
