@@ -25,7 +25,7 @@ body, button, select, input, textarea { text-transform: lowercase; }
   form#add { display:grid; grid-template-columns:1fr auto auto; gap:8px; margin-bottom:12px; }
   @media (max-width:520px) { form#add { grid-template-columns:1fr 1fr; } form#add input[name=task] { grid-column:1/-1; } }
   #more { grid-column:1/-1; margin-top:0; } #more[hidden] { display:none; }
-  #more .btns { display:grid; grid-template-columns:1fr 2fr; gap:8px; } #more .btns button { padding:12px; }
+  #more .btns { display:grid; grid-template-columns:1fr 1fr; gap:8px; } #more .btns button { padding:12px; }
   #addClose { border:2px solid var(--bad); color:var(--bad); font-weight:600; }
   .filters { margin-bottom:12px; } .frow { display:flex; gap:6px; overflow-x:auto; } .frow + .frow { margin-top:6px; }
   .filters button { flex:1 1 0; min-width:0; font-size:13px; padding:6px 2px; text-align:center; }
