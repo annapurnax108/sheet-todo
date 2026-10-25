@@ -30,6 +30,7 @@ body, button, select, input, textarea { text-transform: lowercase; }
   .row { display:flex; align-items:center; gap:10px; }
   .row .t { flex:1; word-break:break-word; } .done .t { text-decoration:line-through; color:var(--mut); }
   .due { font-size:13px; color:var(--mut); } .due.over { color:var(--bad); font-weight:600; } .due.soon { color:var(--soon); font-weight:600; } .due.tmrw { color:var(--tmrw); font-weight:600; }
+  .rep { color:var(--mut); font-size:12px; margin:4px 0 0 30px; }
   .notes { color:var(--mut); font-size:14px; margin:6px 0 0 30px; white-space:pre-wrap; }
   .edit { display:grid; gap:8px; margin-top:8px; } .edit .two { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
   .edit .btns { display:flex; gap:8px; justify-content:space-between; }
@@ -63,10 +64,12 @@ body, button, select, input, textarea { text-transform: lowercase; }
 
 <script>
 const $ = s => document.querySelector(s);
-const STATUSES = ['todo', 'doing', 'done'];
+const STATUSES = ['todo', 'doing', 'done', 'missed'];
+const REPEATS = ['', 'daily', 'weekly', 'monthly', 'yearly'];
 const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
 const save = (k, v) => localStorage.setItem(k, JSON.stringify(v));
-const norm = t => ({ ...t, status: String(t.status || 'todo').toLowerCase() }); // sheet may hold Done/done
+const norm = t => ({ repeat: '', repeat_from: '', series: '', ...t, status: String(t.status || 'todo').toLowerCase() }); // sheet may hold Done/done
+const isOpen = t => t.status !== 'done' && t.status !== 'missed';
 let cfg = load('cfg', {}), tasks = load('tasks', []).map(norm), queue = load('queue', []), filter = 'Today', query = '', editing = null, syncing = false;
 
 const uuid = () => crypto.randomUUID ? crypto.randomUUID() : 'id-' + Date.now() + Math.random().toString(16).slice(2);
@@ -74,6 +77,41 @@ const today = () => new Date().toLocaleDateString('en-CA');
 const inDays = n => { const d = new Date(); d.setDate(d.getDate() + n); return d.toLocaleDateString('en-CA'); };
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
 const setStatus = m => $('#status').textContent = m;
+// k periods after iso (yyyy-mm-dd); monthly/yearly clamp to the last day of shorter months
+function addPeriod(iso, repeat, k) {
+  const [y, m, d] = iso.split('-').map(Number);
+  if (repeat === 'daily' || repeat === 'weekly') return new Date(y, m - 1, d + k * (repeat === 'weekly' ? 7 : 1)).toLocaleDateString('en-CA');
+  const first = new Date(y, m - 1 + k * (repeat === 'yearly' ? 12 : 1), 1);
+  const last = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate();
+  return new Date(first.getFullYear(), first.getMonth(), Math.min(d, last)).toLocaleDateString('en-CA');
+}
+// next occurrence: counted from the due date or from today (completion), always in the future so a late task doesn't pile up copies
+function nextDue(t) {
+  const base = t.repeat_from === 'done' ? today() : (t.due || today());
+  let k = 1, n = addPeriod(base, t.repeat, k);
+  while (n <= today()) n = addPeriod(base, t.repeat, ++k);
+  return n;
+}
+// close a repeating task as done/missed and create its next occurrence (unless one is already open)
+function advance(t, status) {
+  const series = t.series || uuid();
+  upsert({ ...withStatus(t, status), series });
+  if (tasks.some(x => x.series === series && x.id !== t.id && isOpen(x))) return;
+  upsert({ id: uuid(), task: t.task, status: 'todo', due: nextDue(t), notes: t.notes || '', completed_at: '', repeat: t.repeat, repeat_from: t.repeat_from || 'due', series, updated_at: new Date().toISOString() });
+}
+// un-checking a done repeating task drops the still-untouched next occurrence so it isn't duplicated
+function reopen(t) {
+  const nx = t.series && tasks.filter(x => x.series === t.series && x.id !== t.id && x.status === 'todo' && x.due > (t.due || '')).sort((a, b) => a.due.localeCompare(b.due))[0];
+  if (nx) del(nx.id);
+  upsert(withStatus(t, 'todo'));
+}
+// "11 done, 3 missed · streak 3" for a repeating series; streak = latest occurrences done in a row
+function seriesStats(series) {
+  const xs = tasks.filter(x => x.series === series && !isOpen(x)).sort((a, b) => (b.due || '').localeCompare(a.due || ''));
+  const done = xs.filter(x => x.status === 'done').length, missed = xs.length - done;
+  let streak = 0; while (streak < xs.length && xs[streak].status === 'done') streak++;
+  return `${done} done${missed ? `, ${missed} missed` : ''}${streak > 1 ? ` · streak ${streak}` : ''}`;
+}
 // completed_at: keep an existing date if already Done, set today on becoming Done, clear on reopening
 const withStatus = (t, status) => ({ ...t, status, completed_at: status !== 'done' ? '' : (t.status === 'done' && t.completed_at) || today() });
 // pre-fill the add form's due date with today (and roll it over if the app stays open past midnight)
@@ -113,26 +151,30 @@ function del(id) {
 
 function render() {
   $('#filters').innerHTML = ['Open', ...STATUSES, 'All', 'Today'].map(f => `<button data-f="${f}" class="${f === filter ? 'on' : ''}">${f}</button>`).join('');
-  const shown = tasks.filter(t => query ? ((t.task || '') + ' ' + (t.notes || '')).toLowerCase().includes(query) : filter === 'All' ? true : filter === 'Open' ? t.status !== 'done' : filter === 'Today' ? t.status !== 'done' && t.due && t.due <= today() : t.status === filter)
-    .sort((a, b) => (a.status === 'done') - (b.status === 'done')
-      || (a.status === 'done' ? (b.completed_at || b.due || '').localeCompare(a.completed_at || a.due || '') : (a.due || '9999').localeCompare(b.due || '9999')));
+  const shown = tasks.filter(t => query ? ((t.task || '') + ' ' + (t.notes || '')).toLowerCase().includes(query) : filter === 'All' ? true : filter === 'Open' ? isOpen(t) : filter === 'Today' ? isOpen(t) && t.due && t.due <= today() : t.status === filter)
+    .sort((a, b) => !isOpen(a) - !isOpen(b)
+      || (!isOpen(a) ? (b.completed_at || b.due || '').localeCompare(a.completed_at || a.due || '') : (a.due || '9999').localeCompare(b.due || '9999')));
   $('#searchBtn').classList.toggle('on', !!query);
   $('#list').innerHTML = shown.map(t => {
-    const over = t.due && t.status !== 'done' && t.due < today();
-    const soon = t.due && t.status !== 'done' && t.due > today() && t.due <= inDays(7);
+    const over = t.due && isOpen(t) && t.due < today();
+    const soon = t.due && isOpen(t) && t.due > today() && t.due <= inDays(7);
     const tmrw = soon && t.due === inDays(1);
     const ed = editing === t.id;
-    return `<div class="item ${t.status === 'done' ? 'done' : ''}" data-id="${t.id}">
+    return `<div class="item ${isOpen(t) ? '' : 'done'}" data-id="${t.id}">
       <div class="row"><input type="checkbox" data-a="toggle" ${t.status === 'done' ? 'checked' : ''}>
         <span class="t" data-a="edit">${esc(t.task)}${t.status === 'doing' ? ' <small>(doing)</small>' : ''}</span>
         <span class="due ${over ? 'over' : tmrw ? 'tmrw' : soon ? 'soon' : ''}">${esc(t.due)}</span>
-        ${t.status === 'done' && t.completed_at ? `<span class="due">done ${esc(t.completed_at)}</span>` : ''}</div>
+        ${t.status === 'done' && t.completed_at ? `<span class="due">done ${esc(t.completed_at)}</span>` : ''}
+        ${t.status === 'missed' ? '<span class="due">missed</span>' : ''}</div>
+      ${t.repeat ? `<div class="rep">↻ ${esc(t.repeat)}${t.series ? ' · ' + seriesStats(t.series) : ''}</div>` : ''}
       ${t.notes && !ed ? `<div class="notes">${esc(t.notes)}</div>` : ''}
       ${ed ? `<div class="edit"><input name="task" value="${esc(t.task)}">
         <div class="two"><input name="due" type="date" value="${esc(t.due)}">
         <select name="status">${STATUSES.map(s => `<option ${s === t.status ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
+        <div class="two"><select name="repeat">${REPEATS.map(r => `<option value="${r}" ${r === (t.repeat || '') ? 'selected' : ''}>${r ? 'repeat ' + r : 'no repeat'}</option>`).join('')}</select>
+        <select name="repeat_from"><option value="due" ${t.repeat_from !== 'done' ? 'selected' : ''}>from due date</option><option value="done" ${t.repeat_from === 'done' ? 'selected' : ''}>from completion</option></select></div>
         <textarea name="notes" rows="3" placeholder="Notes">${esc(t.notes)}</textarea>
-        <div class="btns"><button data-a="del">Delete</button><span><button data-a="cancel">Cancel</button> <button class="primary" data-a="save">Save</button></span></div></div>` : ''}
+        <div class="btns"><button data-a="del">Delete</button><span>${t.repeat && isOpen(t) ? '<button data-a="skip">Skip</button> ' : ''}<button data-a="cancel">Cancel</button> <button class="primary" data-a="save">Save</button></span></div></div>` : ''}
     </div>`;
   }).join('') || `<p style="color:var(--mut)">${query ? 'No matches.' : 'Nothing here.'}</p>`;
 }
@@ -146,13 +188,16 @@ $('#filters').addEventListener('click', e => { if (e.target.dataset.f) { filter 
 $('#list').addEventListener('click', e => {
   const a = e.target.closest('[data-a]')?.dataset.a, item = e.target.closest('.item'); if (!a || !item) return;
   const t = tasks.find(x => x.id === item.dataset.id);
-  if (a === 'toggle') upsert(withStatus(t, t.status === 'done' ? 'todo' : 'done'));
+  if (a === 'toggle') { if (t.status === 'done') reopen(t); else if (t.repeat) advance(t, 'done'); else upsert(withStatus(t, 'done')); }
+  else if (a === 'skip') { editing = null; advance(t, 'missed'); }
   else if (a === 'edit') { editing = editing === t.id ? null : t.id; render(); }
   else if (a === 'cancel') { editing = null; render(); }
   else if (a === 'del') { if (confirm('Delete this task?')) { editing = null; del(t.id); } }
   else if (a === 'save') {
     const q = n => item.querySelector(`[name=${n}]`).value; editing = null;
-    upsert({ ...withStatus(t, q('status')), task: q('task').trim() || t.task, due: q('due'), notes: q('notes') });
+    const repeat = q('repeat'), status = q('status');
+    const edited = { ...t, task: q('task').trim() || t.task, due: q('due'), notes: q('notes'), repeat, repeat_from: repeat ? q('repeat_from') : '', series: repeat ? t.series || uuid() : t.series };
+    if (repeat && isOpen(t) && !isOpen({ status })) advance(edited, status); else upsert(withStatus(edited, status));
   }
 });
 function toggleSearch(open) {
