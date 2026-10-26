@@ -118,9 +118,17 @@ function nextDue(t) {
   return n;
 }
 // close a repeating task as done/missed and create its next occurrence (unless one is already open)
-function advance(t, status) {
-  const series = t.series || uuid();
-  upsert({ ...withStatus(t, status), series });
+// a task counted from its due date that is closed late also records every occurrence that fell due before the one being closed as missed
+// (due 10/24, done 10/27 -> 10/24, 10/25, 10/26 missed and 10/27 done); catchUp=false skips that, e.g. for a brand-new task
+function advance(t, status, catchUp = true) {
+  const series = t.series || uuid(), now = new Date().toISOString(), gap = [];
+  if (catchUp && t.due && t.repeat_from !== 'done') for (let k = 1, d; (d = addPeriod(t.due, t.repeat, k)) <= today() && k <= 366; k++) gap.push(d);
+  if (gap.length) {
+    const rec = (due, st) => withStatus({ ...t, id: uuid(), due, series, updated_at: now }, st);
+    upsert({ ...withStatus(t, 'missed'), series, updated_at: now });
+    gap.slice(0, -1).forEach(d => upsert(rec(d, 'missed')));
+    upsert(rec(gap[gap.length - 1], status));
+  } else upsert({ ...withStatus(t, status), series });
   if (tasks.some(x => x.series === series && x.id !== t.id && isOpen(x))) return;
   upsert({ id: uuid(), task: t.task, status: 'todo', due: nextDue(t), notes: t.notes || '', completed_at: '', repeat: t.repeat, repeat_from: t.repeat_from || 'due', series, updated_at: new Date().toISOString() });
 }
@@ -225,7 +233,7 @@ addForm.addEventListener('submit', e => {
   const repeat = fmtRepeat(addEl('repeat').value, addEl('every').value), status = addEl('status').value;
   const t = { id: uuid(), task: addEl('task').value.trim(), status: 'todo', due: addEl('due').value, notes: addEl('notes').value, completed_at: '',
     repeat, repeat_from: repeat ? addEl('repeat_from').value : '', series: repeat ? uuid() : '', updated_at: new Date().toISOString() };
-  if (repeat && status === 'done') advance(t, 'done'); else upsert(withStatus(t, status));
+  if (repeat && status === 'done') advance(t, 'done', false); else upsert(withStatus(t, status));
   addForm.reset(); setDueDefault(); setStatusDefault(); $('#more').hidden = true; focusTask();
 });
 // the "every N" box only applies while a repeat unit is chosen
