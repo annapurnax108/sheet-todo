@@ -21,7 +21,7 @@ body, button, select, input, textarea { text-transform: lowercase; }
   button, select, input, textarea { font:inherit; color:inherit; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:8px 10px; }
   button { cursor:pointer; } button.primary { background:var(--acc); color:#fff; border-color:var(--acc); }
   #status { flex:1; min-width:0; text-align:center; color:var(--mut); font-size:12px; line-height:1.2; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
-  textarea[name=notes] { min-height:7.5em; resize:vertical; }
+  textarea[name=notes] { min-height:7.5em; resize:vertical; scroll-margin-top:64px; }
   form#add { display:grid; grid-template-columns:1fr auto auto; gap:8px; margin-bottom:12px; }
   @media (max-width:520px) { form#add { grid-template-columns:minmax(0,1fr) minmax(0,1fr); } form#add input[name=task] { grid-column:1/-1; } }
   #more { grid-column:1/-1; margin-top:0; } #more[hidden] { display:none; }
