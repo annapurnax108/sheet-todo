@@ -8,8 +8,8 @@
 <link rel="icon" href="icon.svg">
 <meta name="theme-color" content="#1a73e8">
 <style>
-  :root { --bg:#fff; --fg:#202124; --mut:#5f6368; --line:#e0e0e0; --acc:#1a73e8; --card:#f8f9fa; --bad:#d93025; --soon:#1a73e8; --tmrw:#e8710a; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#16181b; --fg:#e8eaed; --mut:#9aa0a6; --line:#3c4043; --acc:#8ab4f8; --card:#202327; --bad:#f28b82; --soon:#8ab4f8; --tmrw:#fcad70; } }
+  :root { --bg:#fff; --fg:#202124; --mut:#5f6368; --line:#e0e0e0; --acc:#1a73e8; --card:#f8f9fa; --bad:#d93025; --soon:#1a73e8; --tmrw:#e8710a; --good:#188038; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#16181b; --fg:#e8eaed; --mut:#9aa0a6; --line:#3c4043; --acc:#8ab4f8; --card:#202327; --bad:#f28b82; --soon:#8ab4f8; --tmrw:#fcad70; --good:#81c995; } }
   * { box-sizing: border-box; }
 body, button, select, input, textarea { text-transform: lowercase; }
   body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.4 system-ui,sans-serif; }
@@ -42,6 +42,8 @@ body, button, select, input, textarea { text-transform: lowercase; }
   input[type=date] { min-width:0; width:100%; -webkit-appearance:none; appearance:none; }
   input[type=date]::-webkit-date-and-time-value { text-align:left; }
   .edit input[type=number] { padding-left:4px; padding-right:4px; text-align:center; }
+  .item.met { border-left:4px solid var(--good); } .rep.met { color:var(--good); font-weight:600; } .plus.met { color:var(--good); border-color:var(--good); }
+  .plus { padding:3px 0; width:34px; font-size:12px; font-weight:600; color:var(--soon); border-color:var(--soon); }
   .three { display:grid; grid-template-columns:1fr 4.2em 1.3fr; gap:8px; } input:disabled { opacity:.45; }
   .edit { display:grid; gap:8px; margin-top:8px; } .edit .two { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
   .edit .btns { display:flex; gap:8px; justify-content:space-between; }
@@ -81,13 +83,14 @@ body, button, select, input, textarea { text-transform: lowercase; }
 <script>
 const $ = s => document.querySelector(s);
 const STATUSES = ['todo', 'doing', 'done', 'missed'];
-const REPEATS = ['', 'daily', 'weekly', 'monthly', 'yearly'];
+const REPEATS = ['', 'daily', 'weekly', 'monthly', 'yearly', 'goal']; // 'goal/4' = a weekly goal: 4 sessions a week, on any days
 const UNITS = { daily: 'day', weekly: 'week', monthly: 'month', yearly: 'year' };
 // the interval lives in the repeat cell: 'monthly' = every 1, 'monthly/6' = every 6 months
-const repeatOpt = r => r ? 'repeat ' + UNITS[r] + 's' : 'no repeat';
+const repeatOpt = r => !r ? 'no repeat' : r === 'goal' ? 'times a week' : 'repeat ' + UNITS[r] + 's';
 const parseRepeat = r => { const [unit, n] = String(r || '').split('/'); return { unit, n: Math.max(1, parseInt(n, 10) || 1) }; };
 const fmtRepeat = (unit, n) => !unit ? '' : (n = Math.max(1, parseInt(n, 10) || 1)) > 1 ? `${unit}/${n}` : unit;
-const repeatLabel = r => { const { unit, n } = parseRepeat(r); return n > 1 ? `every ${n} ${UNITS[unit]}s` : unit; };
+const isGoal = r => parseRepeat(r).unit === 'goal';
+const repeatLabel = r => { const { unit, n } = parseRepeat(r); if (unit === 'goal') return `${n}× a week`; return n > 1 ? `every ${n} ${UNITS[unit]}s` : unit; };
 const MAIN = ['Open', 'Today', 'doing', 'missed', 'done'], MORE = ['todo', 'Repeat', 'All']; // filter buttons: main row, and the ⋯ menu
 let moreOpen = false;
 const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
@@ -118,6 +121,27 @@ function nextDue(t) {
   return n;
 }
 // close a repeating task as done/missed and create its next occurrence (unless one is already open)
+// weekly goals (Mon-Sun): one open task due on the week's Sunday, plus a done record per session logged with +1
+const weekEnd = iso => addPeriod(iso, 'daily', 6 - (new Date(iso + 'T00:00').getDay() + 6) % 7);
+const goalDone = t => tasks.filter(x => x.series === t.series && x.status === 'done' && x.completed_at > addPeriod(t.due, 'daily', -7) && x.completed_at <= t.due).length;
+function logSession(t) {
+  settleGoals(); t = tasks.find(x => x.id === t.id) || t; // roll a finished week over first
+  const d = today();
+  upsert({ id: uuid(), task: t.task, status: 'done', due: d, notes: '', completed_at: d, repeat: t.repeat, repeat_from: '', series: t.series, updated_at: new Date().toISOString() });
+}
+// when a goal's week has ended, every session short of the target is recorded as missed and the goal moves to the current week
+// (ids are derived from series+week so two devices settling the same week write the same rows)
+function settleGoals() {
+  tasks.filter(t => isGoal(t.repeat) && isOpen(t) && t.due && t.due < today()).forEach(t => {
+    const n = parseRepeat(t.repeat).n, now = new Date().toISOString();
+    let due = t.due, k = 0;
+    for (; due < today() && k < 520; k++, due = addPeriod(due, 'weekly', 1)) {
+      const short = n - goalDone({ ...t, due });
+      for (let i = 0; i < short; i++) upsert({ id: `${t.series}:${due}:${i}`, task: t.task, status: 'missed', due, notes: '', completed_at: '', repeat: t.repeat, repeat_from: '', series: t.series, updated_at: now });
+    }
+    upsert({ ...t, due, updated_at: now });
+  });
+}
 // a task counted from its due date that is closed late also records every occurrence that fell due before the one being closed as missed
 // (due 10/24, done 10/27 -> 10/24, 10/25, 10/26 missed and 10/27 done); catchUp=false skips that, e.g. for a brand-new task
 function advance(t, status, catchUp = true) {
@@ -143,7 +167,7 @@ function seriesStats(series) {
   const xs = tasks.filter(x => x.series === series && !isOpen(x)).sort((a, b) => (b.due || '').localeCompare(a.due || ''));
   const done = xs.filter(x => x.status === 'done').length, missed = xs.length - done;
   let streak = 0; while (streak < xs.length && xs[streak].status === 'done') streak++;
-  return `${done} done${missed ? `, ${missed} missed` : ''}${streak > 1 ? ` · streak ${streak}` : ''}`;
+  return `${done} done${missed ? `, ${missed} missed` : ''}${streak > 1 && !isGoal(xs[0].repeat) ? ` · streak ${streak}` : ''}`;
 }
 // completed_at: keep an existing date if already Done, set today on becoming Done, clear on reopening
 const withStatus = (t, status) => ({ ...t, status, completed_at: status !== 'done' ? '' : (t.status === 'done' && t.completed_at) || today() });
@@ -169,7 +193,7 @@ async function sync() {
     setStatus('Synced ' + new Date().toLocaleTimeString());
   } catch (e) {
     setStatus((navigator.onLine ? 'Sync error: ' + e.message : 'Offline') + (queue.length ? ` · ${queue.length} change(s) pending` : ''));
-  } finally { syncing = false; render(); }
+  } finally { syncing = false; settleGoals(); render(); }
 }
 
 function upsert(t) {
@@ -186,7 +210,7 @@ function render() {
   const fbtn = f => `<button data-f="${f}" class="${f === filter ? 'on' : ''}"${f === 'Repeat' ? ' title="repeating" aria-label="repeating"' : ''}>${f === 'Repeat' ? '↻' : f}</button>`;
   $('#filters').innerHTML = `<div class="frow">${MAIN.map(fbtn).join('')}<button data-more aria-label="more filters" class="${MORE.includes(filter) ? 'on' : ''}">${MORE.includes(filter) ? (filter === 'Repeat' ? '↻' : filter) : '⋯'}</button></div>`
     + (moreOpen ? `<div class="frow">${MORE.map(fbtn).join('')}</div>` : '');
-  const shown = tasks.filter(t => query ? ((t.task || '') + ' ' + (t.notes || '')).toLowerCase().includes(query) : filter === 'All' ? true : filter === 'Open' ? isOpen(t) : filter === 'Today' ? isOpen(t) && t.due && t.due <= today() : filter === 'Repeat' ? isOpen(t) && t.repeat : t.status === filter)
+  const shown = tasks.filter(t => query ? ((t.task || '') + ' ' + (t.notes || '')).toLowerCase().includes(query) : filter === 'All' ? true : filter === 'Open' ? isOpen(t) : filter === 'Today' ? isOpen(t) && (isGoal(t.repeat) || t.due && t.due <= today()) : filter === 'Repeat' ? isOpen(t) && t.repeat : t.status === filter)
     .sort((a, b) => !isOpen(a) - !isOpen(b)
       || (filter === 'Today' && isOpen(a) ? !!a.repeat - !!b.repeat : 0) // Today: repeating tasks sink to the bottom
       || (!isOpen(a) ? (b.completed_at || b.due || '').localeCompare(a.completed_at || a.due || '') || (b.updated_at || '').localeCompare(a.updated_at || '') // same day: latest change first
@@ -196,14 +220,15 @@ function render() {
     const over = t.due && isOpen(t) && t.due < today();
     const soon = t.due && isOpen(t) && t.due > today() && t.due <= inDays(7);
     const tmrw = soon && t.due === inDays(1);
-    const ed = editing === t.id;
-    return `<div class="item ${isOpen(t) ? '' : 'done'}" data-id="${t.id}">
-      <div class="row"><input type="checkbox" data-a="toggle" ${t.status === 'done' ? 'checked' : ''}>
+    const ed = editing === t.id, goal = isGoal(t.repeat), plus = goal && isOpen(t);
+    const goalN = goal ? parseRepeat(t.repeat).n : 0, got = plus ? goalDone(t) : 0, met = plus && got >= goalN;
+    return `<div class="item ${isOpen(t) ? '' : 'done'}${met ? ' met' : ''}" data-id="${t.id}">
+      <div class="row">${plus ? `<button class="plus${met ? ' met' : ''}" data-a="log" aria-label="log a session">+1</button>` : `<input type="checkbox" data-a="toggle" ${t.status === 'done' ? 'checked' : ''}>`}
         <span class="t" data-a="edit">${esc(t.task)}${t.status === 'doing' ? ' <small>(doing)</small>' : ''}</span>
-        <span class="due ${over ? 'over' : tmrw ? 'tmrw' : soon ? 'soon' : ''}">${esc(t.due)}</span>
+        <span class="due ${goal ? '' : over ? 'over' : tmrw ? 'tmrw' : soon ? 'soon' : ''}">${esc(t.due)}</span>
         ${t.status === 'done' && t.completed_at ? `<span class="due">done ${esc(t.completed_at)}</span>` : ''}
         ${t.status === 'missed' ? '<span class="due">missed</span>' : ''}</div>
-      ${t.repeat ? `<div class="rep">↻ ${esc(repeatLabel(t.repeat))}${t.series ? ' · ' + seriesStats(t.series) : ''}</div>` : ''}
+      ${t.repeat ? `<div class="rep${met ? ' met' : ''}">↻ ${esc(repeatLabel(t.repeat))}${plus ? (met ? ` · ✓ goal met! ${got} of ${goalN} this week${got > goalN ? ` (+${got - goalN} extra)` : ''}` : ` · ${got} of ${goalN} this week`) : ''}${t.series ? ' · ' + seriesStats(t.series) : ''}</div>` : ''}
       ${t.notes && !ed ? `<div class="notes">${esc(t.notes)}</div>` : ''}
       ${ed ? `<div class="edit"><input name="task" value="${esc(t.task)}">
         <div class="two"><input name="due" type="date" value="${esc(t.due)}">
@@ -212,7 +237,7 @@ function render() {
         <input name="every" type="number" min="1" value="${parseRepeat(t.repeat).n}" title="Repeat every" aria-label="Repeat every"${t.repeat ? '' : ' disabled'}>
         <select name="repeat_from"><option value="due" ${t.repeat_from !== 'done' ? 'selected' : ''}>from due date</option><option value="done" ${t.repeat_from === 'done' ? 'selected' : ''}>from completion</option></select></div>
         <textarea name="notes" rows="3" placeholder="Notes">${esc(t.notes)}</textarea>
-        <div class="btns"><button data-a="del">Delete</button><span>${t.repeat && isOpen(t) ? '<button data-a="skip">Skip</button> ' : ''}<button data-a="cancel">Cancel</button> <button class="primary" data-a="save">Save</button></span></div></div>` : ''}
+        <div class="btns"><button data-a="del">Delete</button><span>${t.repeat && !goal && isOpen(t) ? '<button data-a="skip">Skip</button> ' : ''}<button data-a="cancel">Cancel</button> <button class="primary" data-a="save">Save</button></span></div></div>` : ''}
     </div>`;
   }).join('') || `<p style="color:var(--mut)">${query ? 'No matches.' : 'Nothing here.'}</p>`;
 }
@@ -231,13 +256,14 @@ addForm.addEventListener('keydown', e => { if (e.key === 'Escape') $('#more').hi
 addForm.addEventListener('submit', e => {
   e.preventDefault();
   const repeat = fmtRepeat(addEl('repeat').value, addEl('every').value), status = addEl('status').value;
-  const t = { id: uuid(), task: addEl('task').value.trim(), status: 'todo', due: addEl('due').value, notes: addEl('notes').value, completed_at: '',
-    repeat, repeat_from: repeat ? addEl('repeat_from').value : '', series: repeat ? uuid() : '', updated_at: new Date().toISOString() };
-  if (repeat && status === 'done') advance(t, 'done', false); else upsert(withStatus(t, status));
+  const goal = isGoal(repeat);
+  const t = { id: uuid(), task: addEl('task').value.trim(), status: 'todo', due: goal ? weekEnd(today()) : addEl('due').value, notes: addEl('notes').value, completed_at: '',
+    repeat, repeat_from: repeat && !goal ? addEl('repeat_from').value : '', series: repeat ? uuid() : '', updated_at: new Date().toISOString() };
+  if (goal) upsert(t); else if (repeat && status === 'done') advance(t, 'done', false); else upsert(withStatus(t, status));
   addForm.reset(); setDueDefault(); setStatusDefault(); $('#more').hidden = true; focusTask();
 });
 // the "every N" box only applies while a repeat unit is chosen
-const syncEvery = sel => { const n = sel.form ? sel.form.elements.every : sel.parentNode.querySelector('[name=every]'); n.disabled = !sel.value; };
+const syncEvery = sel => { const n = sel.form ? sel.form.elements.every : sel.parentNode.querySelector('[name=every]'); n.disabled = !sel.value; (sel.form ? sel.form.elements.repeat_from : sel.parentNode.querySelector('[name=repeat_from]')).disabled = sel.value === 'goal'; };
 document.addEventListener('change', e => { if (e.target.name === 'repeat') syncEvery(e.target); });
 addForm.addEventListener('reset', () => setTimeout(() => syncEvery(addEl('repeat'))));
 $('#filters').addEventListener('click', e => {
@@ -248,7 +274,8 @@ $('#filters').addEventListener('click', e => {
 $('#list').addEventListener('click', e => {
   const a = e.target.closest('[data-a]')?.dataset.a, item = e.target.closest('.item'); if (!a || !item) return;
   const t = tasks.find(x => x.id === item.dataset.id);
-  if (a === 'toggle') { if (t.status === 'done') reopen(t); else if (t.repeat) advance(t, 'done'); else upsert(withStatus(t, 'done')); }
+  if (a === 'log') logSession(t);
+  else if (a === 'toggle') { if (isGoal(t.repeat)) del(t.id); else if (t.status === 'done') reopen(t); else if (t.repeat) advance(t, 'done'); else upsert(withStatus(t, 'done')); }
   else if (a === 'skip') { editing = null; advance(t, 'missed'); }
   else if (a === 'edit') { editing = editing === t.id ? null : t.id; render(); }
   else if (a === 'cancel') { editing = null; render(); }
@@ -256,8 +283,8 @@ $('#list').addEventListener('click', e => {
   else if (a === 'save') {
     const q = n => item.querySelector(`[name=${n}]`).value; editing = null;
     const repeat = fmtRepeat(q('repeat'), q('every')), status = q('status');
-    const edited = { ...t, task: q('task').trim() || t.task, due: q('due'), notes: q('notes'), repeat, repeat_from: repeat ? q('repeat_from') : '', series: repeat ? t.series || uuid() : t.series };
-    if (repeat && isOpen(t) && !isOpen({ status })) advance(edited, status); else upsert(withStatus(edited, status));
+    const edited = { ...t, task: q('task').trim() || t.task, due: isGoal(repeat) && !isGoal(t.repeat) ? weekEnd(today()) : q('due'), notes: q('notes'), repeat, repeat_from: repeat && !isGoal(repeat) ? q('repeat_from') : '', series: repeat ? t.series || uuid() : t.series };
+    if (repeat && !isGoal(repeat) && isOpen(t) && !isOpen({ status })) advance(edited, status); else upsert(withStatus(edited, status));
   }
 });
 function toggleSearch(open) {
@@ -278,7 +305,7 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) setD
 window.addEventListener('online', sync);
 setInterval(() => { if (!document.hidden && !editing) sync(); }, 30000);
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
-setDueDefault(); setStatusDefault(); render(); sync();
+setDueDefault(); setStatusDefault(); settleGoals(); render(); sync();
 </script>
 </body>
 </html>
