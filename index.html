@@ -46,7 +46,7 @@ body, button, select, input, textarea { text-transform: lowercase; }
   .rep[data-a=hist] { cursor:pointer; }
   .hist { margin:4px 0 0 30px; font-size:12px; color:var(--mut); font-variant-numeric:tabular-nums; }
   .hw { display:grid; grid-template-columns:5.5em 1fr 3.5em 4.5em; gap:6px; padding:2px 0; align-items:center; } .hw .dots { letter-spacing:1px; overflow:hidden; white-space:nowrap; }
-  .hw.ok { color:var(--good); } .hw.short span:last-child { color:var(--bad); font-weight:600; } .hsum { margin-top:4px; }
+  .hw.ok { color:var(--good); } .hw.short span:last-child { color:var(--bad); font-weight:600; } .hsum { margin-top:4px; } .hmore { cursor:pointer; color:var(--acc); padding:2px 0; }
   .plus { padding:3px 0; width:34px; font-size:12px; font-weight:600; color:var(--soon); border-color:var(--soon); }
   .three { display:grid; grid-template-columns:1fr 4.2em 1.3fr; gap:8px; } input:disabled { opacity:.45; }
   .edit { display:grid; gap:8px; margin-top:8px; } .edit .two { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
@@ -101,7 +101,7 @@ const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; 
 const save = (k, v) => localStorage.setItem(k, JSON.stringify(v));
 const norm = t => ({ repeat: '', repeat_from: '', series: '', ...t, status: String(t.status || 'todo').toLowerCase() }); // sheet may hold Done/done
 const isOpen = t => t.status !== 'done' && t.status !== 'missed';
-let cfg = load('cfg', {}), tasks = load('tasks', []).map(norm), queue = load('queue', []), filter = 'Today', query = '', editing = null, syncing = false, histOpen = new Set();
+let cfg = load('cfg', {}), tasks = load('tasks', []).map(norm), queue = load('queue', []), filter = 'Today', query = '', editing = null, syncing = false, histOpen = new Set(), histAll = new Set();
 
 const uuid = () => crypto.randomUUID ? crypto.randomUUID() : 'id-' + Date.now() + Math.random().toString(16).slice(2);
 const today = () => new Date().toLocaleDateString('en-CA');
@@ -145,13 +145,14 @@ function histHtml(t) {
   if (!ws.length) return '<div class="hist">no past weeks yet</div>';
   let best = 0, run = 0;
   [...ws].reverse().forEach(w => { run = w.done >= w.target ? run + 1 : 0; best = Math.max(best, run); });
-  const rows = ws.slice(0, 12).map(w => {
+  const all = histAll.has(t.series), cap = all ? 52 : 12;
+  const rows = ws.slice(0, cap).map(w => {
     const start = addPeriod(w.end, 'daily', -6), ok = w.done >= w.target;
     const range = shortDay(start) + '–' + (start.slice(5, 7) === w.end.slice(5, 7) ? w.end.slice(8).replace(/^0/, '') : shortDay(w.end));
     const dots = '●'.repeat(Math.min(w.done, 10)) + '○'.repeat(Math.max(0, Math.min(w.target, 10) - w.done));
     return `<div class="hw ${ok ? 'ok' : 'short'}"><span>${esc(range)}</span><span class="dots">${dots}</span><span>${w.done} of ${w.target}</span><span>${ok ? '✓ met' + (w.done > w.target ? ' +' + (w.done - w.target) : '') : 'short ' + (w.target - w.done)}</span></div>`;
   }).join('');
-  return `<div class="hist">${rows}${ws.length > 12 ? `<div>+${ws.length - 12} earlier weeks</div>` : ''}<div class="hsum">${ws.filter(w => w.done >= w.target).length} of ${ws.length} weeks met · best streak ${best}</div></div>`;
+  return `<div class="hist">${rows}${ws.length > 12 ? `<div class="hmore" data-a="histall">${all ? (ws.length > 52 ? `${ws.length - 52} older weeks not shown · ` : '') + 'show less ▴' : `+${ws.length - 12} earlier weeks · show all ▾`}</div>` : ''}<div class="hsum">${ws.filter(w => w.done >= w.target).length} of ${ws.length} weeks met · best streak ${best}</div></div>`;
 }
 function logSession(t) {
   settleGoals(); t = tasks.find(x => x.id === t.id) || t; // roll a finished week over first
@@ -304,6 +305,7 @@ $('#list').addEventListener('click', e => {
   const a = e.target.closest('[data-a]')?.dataset.a, item = e.target.closest('.item'); if (!a || !item) return;
   const t = tasks.find(x => x.id === item.dataset.id);
   if (a === 'log') logSession(t);
+  else if (a === 'histall') { histAll.has(t.series) ? histAll.delete(t.series) : histAll.add(t.series); render(); }
   else if (a === 'hist') { histOpen.has(t.series) ? histOpen.delete(t.series) : histOpen.add(t.series); render(); }
   else if (a === 'toggle') { if (isGoal(t.repeat)) del(t.id); else if (t.status === 'done') reopen(t); else if (t.repeat) advance(t, 'done'); else upsert(withStatus(t, 'done')); }
   else if (a === 'skip') { editing = null; advance(t, 'missed'); }
