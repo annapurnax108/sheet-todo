@@ -58,7 +58,9 @@ body, button, select, input, textarea { text-transform: lowercase; }
   .nbtn { border:1px solid transparent; background:none; padding:2px 6px; font-size:15px; line-height:1; opacity:.7; min-width:32px; min-height:32px; }
   .nbtn.on { opacity:1; border-color:var(--acc); }
   .nbtn.empty { opacity:.3; } .nbtn.empty.on { opacity:.8; }
-  .qnote { display:block; width:calc(100% - 30px); margin:6px 0 0 30px; font-size:14px; min-height:4.5em; resize:vertical; }
+  .qnote { display:block; width:calc(100% - 30px); margin:6px 0 0 30px; font-size:16px; min-height:4.5em; resize:vertical; }
+  .qdone { display:block; margin:6px 0 0 auto; padding:4px 14px; font-size:13px; }
+  @media (max-width:520px) { input, select, textarea { font-size:16px; } }
   .plus { padding:3px 0; width:34px; font-size:12px; font-weight:600; color:var(--soon); border-color:var(--soon); }
   .three { display:grid; grid-template-columns:1fr 4.2em 1.3fr; gap:8px; } input:disabled { opacity:.45; }
   .edit { display:grid; gap:8px; margin-top:8px; } .edit .two { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
@@ -275,6 +277,8 @@ function del(id) {
   queue.push({ action: 'delete', id }); save('queue', queue); render(); sync();
 }
 
+// quick-note box is as tall as its text, so the whole note is visible
+const growNote = ta => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight + 2, innerHeight * 0.7) + 'px'; };
 function render() {
   const fbtn = f => `<button data-f="${f}" class="${f === filter ? 'on' : ''}"${f === 'Repeat' ? ' title="repeating" aria-label="repeating"' : ''}>${f === 'Repeat' ? '↻' : f}</button>`;
   $('#filters').innerHTML = `<div class="frow">${MAIN.map(fbtn).join('')}<button data-more aria-label="more filters" class="${MORE.includes(filter) ? 'on' : ''}">${MORE.includes(filter) ? (filter === 'Repeat' ? '↻' : filter) : '⋯'}</button></div>`
@@ -299,7 +303,7 @@ function render() {
         ${t.status === 'done' && t.completed_at ? `<span class="due">done ${esc(showDate(t.completed_at))}</span>` : ''}
         ${t.status === 'missed' ? '<span class="due">missed</span>' : ''}</div>
       ${t.repeat ? `<div class="rep"${plus ? ' data-a="hist"' : ''}>↻ ${esc(repeatLabel(t.repeat))}${plus ? (histOpen.has(t.series) ? ' ▴ history' : ' ▾ history') : t.series ? ' · ' + seriesStats(t.series) : ''}</div>${plus ? goalBox(t) : ''}${plus && histOpen.has(t.series) ? histHtml(t) : ''}` : ''}
-      ${!ed && notesOpen.has(t.id) ? `<textarea class="qnote" name="qnote" rows="3" placeholder="Add a note…">${esc(t.notes)}</textarea>` : ''}
+      ${!ed && notesOpen.has(t.id) ? `<textarea class="qnote" name="qnote" rows="3" placeholder="Add a note…">${esc(t.notes)}</textarea><button class="qdone" data-a="notedone">done</button>` : ''}
       ${ed ? `<div class="edit"><input name="task" value="${esc(t.task)}">
         <div class="two"><input name="due" type="date" value="${esc(t.due)}">
         <select name="status">${STATUSES.map(s => `<option ${s === t.status ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
@@ -310,6 +314,7 @@ function render() {
         <div class="btns"><button data-a="del">Delete</button><span>${t.repeat && !goal && isOpen(t) ? '<button data-a="skip">Skip</button> ' : ''}<button data-a="cancel">Cancel</button> <button class="primary" data-a="save">Save</button></span></div></div>` : ''}
     </div>`;
   }).join('') || `<p style="color:var(--mut)">${query ? 'No matches.' : 'Nothing here.'}</p>`;
+  document.querySelectorAll('.qnote').forEach(growNote);
 }
 
 // the add form's extra fields (status, repeat, notes) open when the task box is tapped
@@ -345,6 +350,7 @@ $('#list').addEventListener('click', e => {
   const a = e.target.closest('[data-a]')?.dataset.a, item = e.target.closest('.item'); if (!a || !item) return;
   const t = tasks.find(x => x.id === item.dataset.id);
   if (a === 'log') logSession(t);
+  else if (a === 'notedone') { document.activeElement?.blur?.(); notesOpen.delete(t.id); render(); }
   else if (a === 'note') { const open = !notesOpen.has(t.id); open ? notesOpen.add(t.id) : notesOpen.delete(t.id); render(); if (open && !t.notes) document.querySelector(`[data-id="${t.id}"] .qnote`)?.focus(); }
   else if (a === 'histall') { histAll.has(t.series) ? histAll.delete(t.series) : histAll.add(t.series); render(); }
   else if (a === 'hist') { histOpen.has(t.series) ? histOpen.delete(t.series) : histOpen.add(t.series); render(); }
@@ -376,13 +382,18 @@ $('#dlg').addEventListener('close', () => {
 });
 document.addEventListener('visibilitychange', () => { if (!document.hidden) setDueDefault(); if (!document.hidden && !editing && !typingNote()) sync(); });
 window.addEventListener('online', sync);
-// quick note: saves when you tap away; the list refresh waits a moment so a tap on another row is not lost
+$('#list').addEventListener('input', e => { if (e.target.matches?.('.qnote')) growNote(e.target); });
+// quick note: saves and closes when you tap away; the list refresh waits a moment so a tap on another row is not lost
+let bubbleTap = { id: '', at: 0 };
+$('#list').addEventListener('pointerdown', e => { const b = e.target.closest('.nbtn'); if (b) bubbleTap = { id: b.closest('.item').dataset.id, at: Date.now() }; });
 $('#list').addEventListener('focusout', e => {
   if (!e.target.matches?.('.qnote')) return;
-  const t = tasks.find(x => x.id === e.target.closest('.item')?.dataset.id);
-  if (!t || e.target.value === (t.notes || '')) return;
-  const n = { ...t, notes: e.target.value };
-  tasks[tasks.indexOf(t)] = n; save('tasks', tasks); queue.push({ action: 'upsert', task: n }); save('queue', queue);
+  const id = e.target.closest('.item')?.dataset.id, t = tasks.find(x => x.id === id); if (!t) return;
+  if (e.target.value !== (t.notes || '')) {
+    const n = { ...t, notes: e.target.value };
+    tasks[tasks.indexOf(t)] = n; save('tasks', tasks); queue.push({ action: 'upsert', task: n }); save('queue', queue);
+  }
+  if (!(bubbleTap.id === id && Date.now() - bubbleTap.at < 600)) notesOpen.delete(id); // a tap on its own bubble closes it via the click
   setTimeout(() => { if (!typingNote()) { render(); sync(); } }, 600);
 });
 // while typing a note, grow the box to fill the space above the keyboard, leaving the buttons visible
