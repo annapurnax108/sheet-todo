@@ -44,6 +44,11 @@ body, button, select, input, textarea { text-transform: lowercase; }
   .edit input[type=number] { padding-left:4px; padding-right:4px; text-align:center; }
   .item.met { border-left:4px solid var(--good); } .rep.met { color:var(--good); font-weight:600; } .plus.met { color:var(--good); border-color:var(--good); }
   .rep[data-a=hist] { cursor:pointer; }
+  .goalbox { margin:6px 0 0 30px; } .gtop { display:flex; align-items:center; gap:10px; flex-wrap:wrap; } .gcount { font-size:14px; font-weight:600; }
+  .pips { display:flex; flex-wrap:wrap; gap:5px; } .pip { width:16px; height:16px; border-radius:50%; border:2px solid var(--line); display:inline-block; }
+  .pip.on { background:var(--soon); border-color:var(--soon); } .pip.met { background:var(--good); border-color:var(--good); }
+  .goalbox.met .gcount { color:var(--good); } .coach { font-size:13px; margin-top:4px; color:var(--mut); } .coach.tight { color:var(--tmrw); font-weight:600; } .coach.late { color:var(--bad); font-weight:600; }
+  .gextra { font-size:12px; color:var(--mut); margin-top:2px; }
   .hist { margin:4px 0 0 30px; font-size:12px; color:var(--mut); font-variant-numeric:tabular-nums; }
   .hw { display:grid; grid-template-columns:5.5em 1fr 3.5em 4.5em; gap:6px; padding:2px 0; align-items:center; } .hw .dots { letter-spacing:1px; overflow:hidden; white-space:nowrap; }
   .hw.ok { color:var(--good); } .hw.short span:last-child { color:var(--bad); font-weight:600; } .hsum { margin-top:4px; } .hmore { cursor:pointer; color:var(--acc); padding:2px 0; }
@@ -140,6 +145,28 @@ function goalHistory(series, openEnd) {
   return Object.values(weeks).sort((a, b) => b.end.localeCompare(a.end));
 }
 const shortDay = iso => new Date(iso + 'T00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+// the progress box under an open weekly goal: pips, counts, a coach line tied to the days left, streak and last week
+function goalBox(t) {
+  const n = parseRepeat(t.repeat).n, got = goalDone(t), left = Math.max(0, n - got), met = got >= n;
+  const daysLeft = Math.round((new Date(t.due + 'T00:00') - new Date(today() + 'T00:00')) / 864e5) + 1;
+  const dl = `${daysLeft} day${daysLeft === 1 ? '' : 's'}`;
+  const pips = Array.from({ length: Math.min(10, Math.max(n, got)) }, (_, i) => `<i class="pip${i < got ? (met ? ' met' : ' on') : ''}"></i>`).join('');
+  const counts = met ? `✓ ${got} of ${n} · goal met!${got > n ? ` +${got - n} bonus` : ''}` : `${got} done · ${left} to go`;
+  let coach, cls = 'ok';
+  if (met) coach = 'Goal crushed. Anything extra is a bonus.';
+  else {
+    coach = !got ? `Fresh week. ${n} to go. Start with one today.` : left === 1 ? 'One more to go!' : got * 2 === n ? 'Halfway there.' : got * 2 > n ? 'Over halfway.' : 'Good start. Keep going.';
+    if (left > daysLeft) { cls = 'late'; coach += ` Only ${dl} left, every session still counts.`; }
+    else if (left === daysLeft) { cls = 'tight'; coach += ` ${left} to go in ${dl}, no days off.`; }
+    else coach += ` ${left} to go in ${dl}, on pace.`;
+  }
+  const hist = goalHistory(t.series, t.due), prev = addPeriod(t.due, 'weekly', -1);
+  let streak = met ? 1 : 0, expect = prev;
+  for (const w of hist) { if (w.end !== expect || w.done < w.target) break; streak++; expect = addPeriod(expect, 'weekly', -1); }
+  const last = hist[0] && hist[0].end === prev ? `last week ${hist[0].done} of ${hist[0].target}` : '';
+  const extra = [streak ? `🔥 ${streak} week${streak === 1 ? '' : 's'} in a row` : '', last].filter(Boolean).join(' · ');
+  return `<div class="goalbox${met ? ' met' : ''}"><div class="gtop"><span class="pips" aria-label="${got} of ${n} done">${pips}</span><span class="gcount">${counts}</span></div><div class="coach ${cls}">${esc(coach)}</div>${extra ? `<div class="gextra">${esc(extra)}</div>` : ''}</div>`;
+}
 function histHtml(t) {
   const ws = goalHistory(t.series, t.due);
   if (!ws.length) return '<div class="hist">no past weeks yet</div>';
@@ -258,7 +285,7 @@ function render() {
         <span class="due ${goal ? '' : over ? 'over' : tmrw ? 'tmrw' : soon ? 'soon' : ''}">${esc(t.due)}</span>
         ${t.status === 'done' && t.completed_at ? `<span class="due">done ${esc(t.completed_at)}</span>` : ''}
         ${t.status === 'missed' ? '<span class="due">missed</span>' : ''}</div>
-      ${t.repeat ? `<div class="rep${met ? ' met' : ''}"${plus ? ' data-a="hist"' : ''}>↻ ${esc(repeatLabel(t.repeat))}${plus ? (met ? ` · ✓ goal met! ${got} of ${goalN} this week${got > goalN ? ` (+${got - goalN} extra)` : ''}` : ` · ${got} of ${goalN} this week`) : ''}${t.series ? ' · ' + seriesStats(t.series) : ''}${plus ? (histOpen.has(t.series) ? ' ▴' : ' ▾') : ''}</div>${plus && histOpen.has(t.series) ? histHtml(t) : ''}` : ''}
+      ${t.repeat ? `<div class="rep"${plus ? ' data-a="hist"' : ''}>↻ ${esc(repeatLabel(t.repeat))}${plus ? (histOpen.has(t.series) ? ' ▴ history' : ' ▾ history') : t.series ? ' · ' + seriesStats(t.series) : ''}</div>${plus ? goalBox(t) : ''}${plus && histOpen.has(t.series) ? histHtml(t) : ''}` : ''}
       ${t.notes && !ed ? `<div class="notes">${esc(t.notes)}</div>` : ''}
       ${ed ? `<div class="edit"><input name="task" value="${esc(t.task)}">
         <div class="two"><input name="due" type="date" value="${esc(t.due)}">
