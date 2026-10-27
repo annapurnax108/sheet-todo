@@ -43,6 +43,10 @@ body, button, select, input, textarea { text-transform: lowercase; }
   input[type=date]::-webkit-date-and-time-value { text-align:left; }
   .edit input[type=number] { padding-left:4px; padding-right:4px; text-align:center; }
   .item.met { border-left:4px solid var(--good); } .rep.met { color:var(--good); font-weight:600; } .plus.met { color:var(--good); border-color:var(--good); }
+  .rep[data-a=hist] { cursor:pointer; }
+  .hist { margin:4px 0 0 30px; font-size:12px; color:var(--mut); font-variant-numeric:tabular-nums; }
+  .hw { display:grid; grid-template-columns:5.5em 1fr 3.5em 4.5em; gap:6px; padding:2px 0; align-items:center; } .hw .dots { letter-spacing:1px; overflow:hidden; white-space:nowrap; }
+  .hw.ok { color:var(--good); } .hw.short span:last-child { color:var(--bad); font-weight:600; } .hsum { margin-top:4px; }
   .plus { padding:3px 0; width:34px; font-size:12px; font-weight:600; color:var(--soon); border-color:var(--soon); }
   .three { display:grid; grid-template-columns:1fr 4.2em 1.3fr; gap:8px; } input:disabled { opacity:.45; }
   .edit { display:grid; gap:8px; margin-top:8px; } .edit .two { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
@@ -97,7 +101,7 @@ const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; 
 const save = (k, v) => localStorage.setItem(k, JSON.stringify(v));
 const norm = t => ({ repeat: '', repeat_from: '', series: '', ...t, status: String(t.status || 'todo').toLowerCase() }); // sheet may hold Done/done
 const isOpen = t => t.status !== 'done' && t.status !== 'missed';
-let cfg = load('cfg', {}), tasks = load('tasks', []).map(norm), queue = load('queue', []), filter = 'Today', query = '', editing = null, syncing = false;
+let cfg = load('cfg', {}), tasks = load('tasks', []).map(norm), queue = load('queue', []), filter = 'Today', query = '', editing = null, syncing = false, histOpen = new Set();
 
 const uuid = () => crypto.randomUUID ? crypto.randomUUID() : 'id-' + Date.now() + Math.random().toString(16).slice(2);
 const today = () => new Date().toLocaleDateString('en-CA');
@@ -124,6 +128,31 @@ function nextDue(t) {
 // weekly goals (Mon-Sun): one open task due on the week's Sunday, plus a done record per session logged with +1
 const weekEnd = iso => addPeriod(iso, 'daily', 6 - (new Date(iso + 'T00:00').getDay() + 6) % 7);
 const goalDone = t => tasks.filter(x => x.series === t.series && x.status === 'done' && x.completed_at > addPeriod(t.due, 'daily', -7) && x.completed_at <= t.due).length;
+// past weeks of a goal series, newest first, built from its session (done) and shortfall (missed) rows; the open week is left out
+function goalHistory(series, openEnd) {
+  const weeks = {};
+  tasks.filter(x => x.series === series && (x.status === 'done' ? x.completed_at : x.status === 'missed')).forEach(x => {
+    const end = weekEnd(x.status === 'done' ? x.completed_at : x.due); if (end >= openEnd) return;
+    const w = weeks[end] = weeks[end] || { end, done: 0, target: 0 };
+    if (x.status === 'done') w.done++;
+    if (!w.target || x.status === 'missed') w.target = parseRepeat(x.repeat).n;
+  });
+  return Object.values(weeks).sort((a, b) => b.end.localeCompare(a.end));
+}
+const shortDay = iso => new Date(iso + 'T00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+function histHtml(t) {
+  const ws = goalHistory(t.series, t.due);
+  if (!ws.length) return '<div class="hist">no past weeks yet</div>';
+  let best = 0, run = 0;
+  [...ws].reverse().forEach(w => { run = w.done >= w.target ? run + 1 : 0; best = Math.max(best, run); });
+  const rows = ws.slice(0, 12).map(w => {
+    const start = addPeriod(w.end, 'daily', -6), ok = w.done >= w.target;
+    const range = shortDay(start) + '–' + (start.slice(5, 7) === w.end.slice(5, 7) ? w.end.slice(8).replace(/^0/, '') : shortDay(w.end));
+    const dots = '●'.repeat(Math.min(w.done, 10)) + '○'.repeat(Math.max(0, Math.min(w.target, 10) - w.done));
+    return `<div class="hw ${ok ? 'ok' : 'short'}"><span>${esc(range)}</span><span class="dots">${dots}</span><span>${w.done} of ${w.target}</span><span>${ok ? '✓ met' + (w.done > w.target ? ' +' + (w.done - w.target) : '') : 'short ' + (w.target - w.done)}</span></div>`;
+  }).join('');
+  return `<div class="hist">${rows}${ws.length > 12 ? `<div>+${ws.length - 12} earlier weeks</div>` : ''}<div class="hsum">${ws.filter(w => w.done >= w.target).length} of ${ws.length} weeks met · best streak ${best}</div></div>`;
+}
 function logSession(t) {
   settleGoals(); t = tasks.find(x => x.id === t.id) || t; // roll a finished week over first
   const d = today();
@@ -228,7 +257,7 @@ function render() {
         <span class="due ${goal ? '' : over ? 'over' : tmrw ? 'tmrw' : soon ? 'soon' : ''}">${esc(t.due)}</span>
         ${t.status === 'done' && t.completed_at ? `<span class="due">done ${esc(t.completed_at)}</span>` : ''}
         ${t.status === 'missed' ? '<span class="due">missed</span>' : ''}</div>
-      ${t.repeat ? `<div class="rep${met ? ' met' : ''}">↻ ${esc(repeatLabel(t.repeat))}${plus ? (met ? ` · ✓ goal met! ${got} of ${goalN} this week${got > goalN ? ` (+${got - goalN} extra)` : ''}` : ` · ${got} of ${goalN} this week`) : ''}${t.series ? ' · ' + seriesStats(t.series) : ''}</div>` : ''}
+      ${t.repeat ? `<div class="rep${met ? ' met' : ''}"${plus ? ' data-a="hist"' : ''}>↻ ${esc(repeatLabel(t.repeat))}${plus ? (met ? ` · ✓ goal met! ${got} of ${goalN} this week${got > goalN ? ` (+${got - goalN} extra)` : ''}` : ` · ${got} of ${goalN} this week`) : ''}${t.series ? ' · ' + seriesStats(t.series) : ''}${plus ? (histOpen.has(t.series) ? ' ▴' : ' ▾') : ''}</div>${plus && histOpen.has(t.series) ? histHtml(t) : ''}` : ''}
       ${t.notes && !ed ? `<div class="notes">${esc(t.notes)}</div>` : ''}
       ${ed ? `<div class="edit"><input name="task" value="${esc(t.task)}">
         <div class="two"><input name="due" type="date" value="${esc(t.due)}">
@@ -275,6 +304,7 @@ $('#list').addEventListener('click', e => {
   const a = e.target.closest('[data-a]')?.dataset.a, item = e.target.closest('.item'); if (!a || !item) return;
   const t = tasks.find(x => x.id === item.dataset.id);
   if (a === 'log') logSession(t);
+  else if (a === 'hist') { histOpen.has(t.series) ? histOpen.delete(t.series) : histOpen.add(t.series); render(); }
   else if (a === 'toggle') { if (isGoal(t.repeat)) del(t.id); else if (t.status === 'done') reopen(t); else if (t.repeat) advance(t, 'done'); else upsert(withStatus(t, 'done')); }
   else if (a === 'skip') { editing = null; advance(t, 'missed'); }
   else if (a === 'edit') { editing = editing === t.id ? null : t.id; render(); }
