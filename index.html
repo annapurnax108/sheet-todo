@@ -55,6 +55,8 @@ body, button, select, input, textarea { text-transform: lowercase; }
   .hist { margin:4px 0 0 30px; font-size:12px; color:var(--mut); font-variant-numeric:tabular-nums; }
   .hw { display:grid; grid-template-columns:5.5em 1fr 3.5em 4.5em; gap:6px; padding:2px 0; align-items:center; } .hw .dots { letter-spacing:1px; overflow:hidden; white-space:nowrap; }
   .hw.ok { color:var(--good); } .hw.short span:last-child { color:var(--bad); font-weight:600; } .hsum { margin-top:4px; } .hmore { cursor:pointer; color:var(--acc); padding:2px 0; }
+  .nbtn { border:1px solid transparent; background:none; padding:2px 6px; font-size:15px; line-height:1; opacity:.7; min-width:32px; min-height:32px; }
+  .nbtn.on { opacity:1; border-color:var(--acc); }
   .plus { padding:3px 0; width:34px; font-size:12px; font-weight:600; color:var(--soon); border-color:var(--soon); }
   .three { display:grid; grid-template-columns:1fr 4.2em 1.3fr; gap:8px; } input:disabled { opacity:.45; }
   .edit { display:grid; gap:8px; margin-top:8px; } .edit .two { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
@@ -108,7 +110,7 @@ const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; 
 const save = (k, v) => localStorage.setItem(k, JSON.stringify(v));
 const norm = t => ({ repeat: '', repeat_from: '', series: '', ...t, status: String(t.status || 'todo').toLowerCase() }); // sheet may hold Done/done
 const isOpen = t => t.status !== 'done' && t.status !== 'missed';
-let cfg = load('cfg', {}), tasks = load('tasks', []).map(norm), queue = load('queue', []), filter = 'Today', query = '', editing = null, syncing = false, histOpen = new Set(), histAll = new Set();
+let cfg = load('cfg', {}), tasks = load('tasks', []).map(norm), queue = load('queue', []), filter = 'Today', query = '', editing = null, syncing = false, histOpen = new Set(), histAll = new Set(), notesOpen = new Set();
 
 const uuid = () => crypto.randomUUID ? crypto.randomUUID() : 'id-' + Date.now() + Math.random().toString(16).slice(2);
 const today = () => new Date().toLocaleDateString('en-CA');
@@ -287,11 +289,12 @@ function render() {
     return `<div class="item ${isOpen(t) ? '' : 'done'}${met ? ' met' : ''}" data-id="${t.id}">
       <div class="row">${plus ? `<button class="plus${met ? ' met' : ''}" data-a="log" aria-label="log a session">+1</button>` : `<input type="checkbox" data-a="toggle" ${t.status === 'done' ? 'checked' : ''}>`}
         <span class="t" data-a="edit">${esc(t.task)}${t.status === 'doing' ? ' <small>(doing)</small>' : ''}</span>
+        ${t.notes && !goal && !ed ? `<button class="nbtn${notesOpen.has(t.id) ? ' on' : ''}" data-a="note" aria-label="show note">💬</button>` : ''}
         <span class="due ${goal ? '' : over ? 'over' : tmrw ? 'tmrw' : soon ? 'soon' : ''}">${esc(t.due)}</span>
         ${t.status === 'done' && t.completed_at ? `<span class="due">done ${esc(t.completed_at)}</span>` : ''}
         ${t.status === 'missed' ? '<span class="due">missed</span>' : ''}</div>
       ${t.repeat ? `<div class="rep"${plus ? ' data-a="hist"' : ''}>↻ ${esc(repeatLabel(t.repeat))}${plus ? (histOpen.has(t.series) ? ' ▴ history' : ' ▾ history') : t.series ? ' · ' + seriesStats(t.series) : ''}</div>${plus ? goalBox(t) : ''}${plus && histOpen.has(t.series) ? histHtml(t) : ''}` : ''}
-      ${t.notes && !ed ? `<div class="notes">${esc(t.notes)}</div>` : ''}
+      ${t.notes && !ed && (goal || notesOpen.has(t.id)) ? `<div class="notes">${esc(t.notes)}</div>` : ''}
       ${ed ? `<div class="edit"><input name="task" value="${esc(t.task)}">
         <div class="two"><input name="due" type="date" value="${esc(t.due)}">
         <select name="status">${STATUSES.map(s => `<option ${s === t.status ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
@@ -337,6 +340,7 @@ $('#list').addEventListener('click', e => {
   const a = e.target.closest('[data-a]')?.dataset.a, item = e.target.closest('.item'); if (!a || !item) return;
   const t = tasks.find(x => x.id === item.dataset.id);
   if (a === 'log') logSession(t);
+  else if (a === 'note') { notesOpen.has(t.id) ? notesOpen.delete(t.id) : notesOpen.add(t.id); render(); }
   else if (a === 'histall') { histAll.has(t.series) ? histAll.delete(t.series) : histAll.add(t.series); render(); }
   else if (a === 'hist') { histOpen.has(t.series) ? histOpen.delete(t.series) : histOpen.add(t.series); render(); }
   else if (a === 'toggle') { if (isGoal(t.repeat)) del(t.id); else if (t.status === 'done') reopen(t); else if (t.repeat) advance(t, 'done'); else upsert(withStatus(t, 'done')); }
