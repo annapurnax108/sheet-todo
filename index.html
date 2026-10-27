@@ -16,12 +16,12 @@ body, button, select, input, textarea { text-transform: lowercase; }
   main { max-width:720px; margin:0 auto; padding:16px; }
   header { display:flex; align-items:center; gap:8px; margin-bottom:12px; }
   h1 { font-size:20px; margin:0; }
-  #refresh { margin-left:auto; }
   #searchRow { display:flex; gap:8px; margin-bottom:12px; } #searchRow[hidden] { display:none; } #q { flex:1; min-width:0; }
   #searchBtn.on { background:var(--acc); color:#fff; border-color:var(--acc); }
   button, select, input, textarea { font:inherit; color:inherit; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:8px 10px; }
   button { cursor:pointer; } button.primary { background:var(--acc); color:#fff; border-color:var(--acc); }
-  #status { color:var(--mut); font-size:13px; margin-bottom:8px; min-height:18px; }
+  #status { flex:1; min-width:0; text-align:center; color:var(--mut); font-size:12px; line-height:1.2; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  textarea[name=notes] { min-height:7.5em; resize:vertical; }
   form#add { display:grid; grid-template-columns:1fr auto auto; gap:8px; margin-bottom:12px; }
   @media (max-width:520px) { form#add { grid-template-columns:minmax(0,1fr) minmax(0,1fr); } form#add input[name=task] { grid-column:1/-1; } }
   #more { grid-column:1/-1; margin-top:0; } #more[hidden] { display:none; }
@@ -66,16 +66,15 @@ body, button, select, input, textarea { text-transform: lowercase; }
 </head>
 <body>
 <main>
-  <header><h1>To-Do</h1><button id="searchBtn" title="Search" aria-label="Search">🔍</button><button id="refresh" title="Sync now">⟳</button><button id="cfg" title="Settings">⚙</button></header>
+  <header><h1>To-Do</h1><div id="status"></div><button id="searchBtn" title="Search" aria-label="Search">🔍</button><button id="refresh" title="Sync now">⟳</button><button id="cfg" title="Settings">⚙</button></header>
   <div id="searchRow" hidden><input id="q" type="search" placeholder="search all tasks…" autocomplete="off"><button id="qx" aria-label="Close search">✕</button></div>
-  <div id="status"></div>
   <form id="add">
     <input name="task" placeholder="New task…" required autocomplete="off">
     <input name="due" type="date" title="Due date">
     <select name="status"></select>
     <div id="more" class="edit" hidden>
       <div class="three"><select name="repeat"></select><input name="every" type="number" min="1" value="1" title="Repeat every" aria-label="Repeat every" disabled><select name="repeat_from"></select></div>
-      <textarea name="notes" rows="2" placeholder="Notes"></textarea>
+      <textarea name="notes" rows="6" placeholder="Notes"></textarea>
       <div class="btns"><button type="button" id="addClose">✕ close</button><button class="primary">add</button></div>
     </div>
   </form>
@@ -115,7 +114,7 @@ const uuid = () => crypto.randomUUID ? crypto.randomUUID() : 'id-' + Date.now() 
 const today = () => new Date().toLocaleDateString('en-CA');
 const inDays = n => { const d = new Date(); d.setDate(d.getDate() + n); return d.toLocaleDateString('en-CA'); };
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
-const setStatus = m => $('#status').textContent = m;
+const setStatus = m => { const el = $('#status'); el.textContent = m; el.title = m; };
 // k periods after iso (yyyy-mm-dd); monthly/yearly clamp to the last day of shorter months
 function addPeriod(iso, repeat, k) {
   const [y, m, d] = iso.split('-').map(Number), { unit, n } = parseRepeat(repeat);
@@ -253,7 +252,7 @@ async function sync() {
     while (queue.length) { server = await call(queue[0]); queue.shift(); save('queue', queue); }
     server = server || await call({ action: 'list' });
     if (!queue.length) { tasks = server.map(norm); save('tasks', tasks); }
-    setStatus('Synced ' + new Date().toLocaleTimeString());
+    setStatus('Synced ' + new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }));
   } catch (e) {
     setStatus((navigator.onLine ? 'Sync error: ' + e.message : 'Offline') + (queue.length ? ` · ${queue.length} change(s) pending` : ''));
   } finally { syncing = false; settleGoals(); render(); }
@@ -299,7 +298,7 @@ function render() {
         <div class="three"><select name="repeat">${REPEATS.map(r => `<option value="${r}" ${r === parseRepeat(t.repeat).unit || (!r && !t.repeat) ? 'selected' : ''}>${repeatOpt(r)}</option>`).join('')}</select>
         <input name="every" type="number" min="1" value="${parseRepeat(t.repeat).n}" title="Repeat every" aria-label="Repeat every"${t.repeat ? '' : ' disabled'}>
         <select name="repeat_from"><option value="due" ${t.repeat_from !== 'done' ? 'selected' : ''}>from due date</option><option value="done" ${t.repeat_from === 'done' ? 'selected' : ''}>from completion</option></select></div>
-        <textarea name="notes" rows="3" placeholder="Notes">${esc(t.notes)}</textarea>
+        <textarea name="notes" rows="6" placeholder="Notes">${esc(t.notes)}</textarea>
         <div class="btns"><button data-a="del">Delete</button><span>${t.repeat && !goal && isOpen(t) ? '<button data-a="skip">Skip</button> ' : ''}<button data-a="cancel">Cancel</button> <button class="primary" data-a="save">Save</button></span></div></div>` : ''}
     </div>`;
   }).join('') || `<p style="color:var(--mut)">${query ? 'No matches.' : 'Nothing here.'}</p>`;
