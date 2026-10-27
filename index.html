@@ -371,12 +371,12 @@ window.addEventListener('online', sync);
 const noteBoxes = () => document.querySelectorAll('textarea[name=notes]');
 const fitNote = ta => {
   const vv = window.visualViewport, btns = ta.parentNode.querySelector('.btns'); if (!vv || !btns) return;
-  const room = vv.offsetTop + vv.height - ta.getBoundingClientRect().top - btns.offsetHeight - 24;
-  ta.style.height = Math.round(Math.min(Math.max(room, 120), 360)) + 'px';
+  const room = vv.offsetTop + vv.height - ta.getBoundingClientRect().top - btns.offsetHeight - 56;
+  ta.style.height = Math.round(Math.min(Math.max(room, 90), 360)) + 'px';
 };
 const activeNote = () => document.activeElement?.matches?.('textarea[name=notes]') ? document.activeElement : null;
 document.addEventListener('focusin', e => {
-  if (e.target.name === 'notes') { e.target.scrollIntoView({ block: 'start' }); fitNote(e.target); }
+  if (e.target.name === 'notes') { e.target.scrollIntoView({ block: 'start' }); fitNote(e.target); setTimeout(refit, 350); setTimeout(refit, 800); }
   else noteBoxes().forEach(n => n.style.height = '');
 });
 const refit = () => { const n = activeNote(); if (n) { n.scrollIntoView({ block: 'start' }); fitNote(n); } };
