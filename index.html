@@ -149,6 +149,8 @@ function goalHistory(series, openEnd) {
   return Object.values(weeks).sort((a, b) => b.end.localeCompare(a.end));
 }
 const shortDay = iso => new Date(iso + 'T00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+// list dates: "Oct 27" this year, full YYYY-MM-DD for any other year
+const showDate = iso => /^\d{4}-\d\d-\d\d$/.test(iso) && iso.slice(0, 4) === today().slice(0, 4) ? shortDay(iso) : iso;
 // the progress box under an open weekly goal: pips, counts, a coach line tied to the days left, streak and last week
 function goalBox(t) {
   const n = parseRepeat(t.repeat).n, got = goalDone(t), left = Math.max(0, n - got), met = got >= n;
@@ -290,8 +292,8 @@ function render() {
       <div class="row">${plus ? `<button class="plus${met ? ' met' : ''}" data-a="log" aria-label="log a session">+1</button>` : `<input type="checkbox" data-a="toggle" ${t.status === 'done' ? 'checked' : ''}>`}
         <span class="t" data-a="edit">${esc(t.task)}${t.status === 'doing' ? ' <small>(doing)</small>' : ''}</span>
         ${t.notes && !goal && !ed ? `<button class="nbtn${notesOpen.has(t.id) ? ' on' : ''}" data-a="note" aria-label="show note">💬</button>` : ''}
-        <span class="due ${goal ? '' : over ? 'over' : tmrw ? 'tmrw' : soon ? 'soon' : ''}">${esc(t.due)}</span>
-        ${t.status === 'done' && t.completed_at ? `<span class="due">done ${esc(t.completed_at)}</span>` : ''}
+        <span class="due ${goal ? '' : over ? 'over' : tmrw ? 'tmrw' : soon ? 'soon' : ''}">${esc(showDate(t.due))}</span>
+        ${t.status === 'done' && t.completed_at ? `<span class="due">done ${esc(showDate(t.completed_at))}</span>` : ''}
         ${t.status === 'missed' ? '<span class="due">missed</span>' : ''}</div>
       ${t.repeat ? `<div class="rep"${plus ? ' data-a="hist"' : ''}>↻ ${esc(repeatLabel(t.repeat))}${plus ? (histOpen.has(t.series) ? ' ▴ history' : ' ▾ history') : t.series ? ' · ' + seriesStats(t.series) : ''}</div>${plus ? goalBox(t) : ''}${plus && histOpen.has(t.series) ? histHtml(t) : ''}` : ''}
       ${t.notes && !ed && (goal || notesOpen.has(t.id)) ? `<div class="notes">${esc(t.notes)}</div>` : ''}
