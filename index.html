@@ -8,8 +8,8 @@
 <link rel="icon" href="icon.svg">
 <meta name="theme-color" content="#1a73e8">
 <style>
-  :root { --bg:#fff; --fg:#202124; --mut:#5f6368; --line:#e0e0e0; --acc:#1a73e8; --card:#f8f9fa; --bad:#d93025; --soon:#1a73e8; --tmrw:#e8710a; --good:#188038; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#16181b; --fg:#e8eaed; --mut:#9aa0a6; --line:#3c4043; --acc:#8ab4f8; --card:#202327; --bad:#f28b82; --soon:#8ab4f8; --tmrw:#fcad70; --good:#81c995; } }
+  :root { --bg:#fff; --fg:#202124; --mut:#5f6368; --line:#e0e0e0; --acc:#1a73e8; --card:#f8f9fa; --bad:#d93025; --soon:#1a73e8; --tmrw:#e8710a; --good:#188038; --bonus:#f9ab00; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#16181b; --fg:#e8eaed; --mut:#9aa0a6; --line:#3c4043; --acc:#8ab4f8; --card:#202327; --bad:#f28b82; --soon:#8ab4f8; --tmrw:#fcad70; --good:#81c995; --bonus:#fdd663; } }
   * { box-sizing: border-box; }
 body, button, select, input, textarea { text-transform: lowercase; }
   body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.4 system-ui,sans-serif; }
@@ -47,6 +47,9 @@ body, button, select, input, textarea { text-transform: lowercase; }
   .goalbox { margin:6px 0 0 30px; } .gtop { display:flex; align-items:center; gap:10px; flex-wrap:wrap; } .gcount { font-size:14px; font-weight:600; }
   .pips { display:flex; flex-wrap:wrap; gap:5px; } .pip { width:16px; height:16px; border-radius:50%; border:2px solid var(--line); display:inline-block; }
   .pip.on { background:var(--soon); border-color:var(--soon); } .pip.met { background:var(--good); border-color:var(--good); }
+  .pipsep { width:1px; height:16px; background:var(--mut); margin:0 5px; opacity:.6; align-self:center; }
+  .pip.bonus { width:14px; height:14px; border:0; border-radius:0; background:var(--bonus); clip-path:polygon(50% 0, 62% 36%, 100% 38%, 70% 60%, 80% 100%, 50% 76%, 20% 100%, 30% 60%, 0 38%, 38% 36%); align-self:center; }
+  .bonus-text, .hbonus { color:var(--bonus); font-weight:700; } .hbonus { margin-left:6px; letter-spacing:0; }
   .goalbox.met .gcount { color:var(--good); } .coach { font-size:13px; margin-top:4px; color:var(--mut); } .coach.tight { color:var(--tmrw); font-weight:600; } .coach.late { color:var(--bad); font-weight:600; }
   .gextra { font-size:12px; color:var(--mut); margin-top:2px; }
   .hist { margin:4px 0 0 30px; font-size:12px; color:var(--mut); font-variant-numeric:tabular-nums; }
@@ -150,10 +153,12 @@ function goalBox(t) {
   const n = parseRepeat(t.repeat).n, got = goalDone(t), left = Math.max(0, n - got), met = got >= n;
   const daysLeft = Math.round((new Date(t.due + 'T00:00') - new Date(today() + 'T00:00')) / 864e5) + 1;
   const dl = `${daysLeft} day${daysLeft === 1 ? '' : 's'}`;
-  const pips = Array.from({ length: Math.min(10, Math.max(n, got)) }, (_, i) => `<i class="pip${i < got ? (met ? ' met' : ' on') : ''}"></i>`).join('');
-  const counts = met ? `✓ ${got} of ${n} · goal met!${got > n ? ` +${got - n} bonus` : ''}` : `${got} done · ${left} to go`;
+  const bonus = Math.max(0, got - n); // sessions beyond the goal are shown apart from it: a divider, then star-shaped marks
+  const pips = Array.from({ length: Math.min(10, n) }, (_, i) => `<i class="pip${i < got ? (met ? ' met' : ' on') : ''}"></i>`).join('')
+    + (bonus ? `<span class="pipsep"></span>` + Array.from({ length: Math.min(6, bonus) }, () => '<i class="pip bonus"></i>').join('') : '');
+  const counts = met ? `✓ ${n} of ${n} · goal met!${bonus ? ` <span class="bonus-text">+${bonus} bonus</span>` : ''}` : `${got} done · ${left} to go`;
   let coach, cls = 'ok';
-  if (met) coach = 'Goal crushed. Anything extra is a bonus.';
+  if (met) coach = bonus ? `Goal crushed. ${bonus} bonus on top.` : 'Goal crushed. Anything extra is a bonus.';
   else {
     coach = !got ? `Fresh week. ${n} to go. Start with one today.` : left === 1 ? 'One more to go!' : got * 2 === n ? 'Halfway there.' : got * 2 > n ? 'Over halfway.' : 'Good start. Keep going.';
     if (left > daysLeft) { cls = 'late'; coach += ` Only ${dl} left, every session still counts.`; }
@@ -176,8 +181,9 @@ function histHtml(t) {
   const rows = ws.slice(0, cap).map(w => {
     const start = addPeriod(w.end, 'daily', -6), ok = w.done >= w.target;
     const range = shortDay(start) + '–' + (start.slice(5, 7) === w.end.slice(5, 7) ? w.end.slice(8).replace(/^0/, '') : shortDay(w.end));
-    const dots = '●'.repeat(Math.min(w.done, 10)) + '○'.repeat(Math.max(0, Math.min(w.target, 10) - w.done));
-    return `<div class="hw ${ok ? 'ok' : 'short'}"><span>${esc(range)}</span><span class="dots">${dots}</span><span>${w.done} of ${w.target}</span><span>${ok ? '✓ met' + (w.done > w.target ? ' +' + (w.done - w.target) : '') : 'short ' + (w.target - w.done)}</span></div>`;
+    const hit = Math.min(w.done, w.target), extra = w.done - hit;
+    const dots = '●'.repeat(Math.min(hit, 10)) + '○'.repeat(Math.max(0, Math.min(w.target, 10) - hit)) + (extra ? `<span class="hbonus">${'★'.repeat(Math.min(extra, 6))}</span>` : '');
+    return `<div class="hw ${ok ? 'ok' : 'short'}"><span>${esc(range)}</span><span class="dots">${dots}</span><span>${hit} of ${w.target}</span><span>${ok ? '✓ met' + (extra ? ` <b class="hbonus">+${extra}</b>` : '') : 'short ' + (w.target - w.done)}</span></div>`;
   }).join('');
   return `<div class="hist">${rows}${ws.length > 12 ? `<div class="hmore" data-a="histall">${all ? (ws.length > 52 ? `${ws.length - 52} older weeks not shown · ` : '') + 'show less ▴' : `+${ws.length - 12} earlier weeks · show all ▾`}</div>` : ''}<div class="hsum">${ws.filter(w => w.done >= w.target).length} of ${ws.length} weeks met · best streak ${best}</div></div>`;
 }
