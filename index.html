@@ -57,6 +57,8 @@ body, button, select, input, textarea { text-transform: lowercase; }
   .hw.ok { color:var(--good); } .hw.short span:last-child { color:var(--bad); font-weight:600; } .hsum { margin-top:4px; } .hmore { cursor:pointer; color:var(--acc); padding:2px 0; }
   .nbtn { border:1px solid transparent; background:none; padding:2px 6px; font-size:15px; line-height:1; opacity:.7; min-width:32px; min-height:32px; }
   .nbtn.on { opacity:1; border-color:var(--acc); }
+  .nbtn.empty { opacity:.3; } .nbtn.empty.on { opacity:.8; }
+  .qnote { display:block; width:calc(100% - 30px); margin:6px 0 0 30px; font-size:14px; min-height:4.5em; resize:vertical; }
   .plus { padding:3px 0; width:34px; font-size:12px; font-weight:600; color:var(--soon); border-color:var(--soon); }
   .three { display:grid; grid-template-columns:1fr 4.2em 1.3fr; gap:8px; } input:disabled { opacity:.45; }
   .edit { display:grid; gap:8px; margin-top:8px; } .edit .two { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
@@ -259,9 +261,10 @@ async function sync() {
     setStatus('Synced ' + new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }));
   } catch (e) {
     setStatus((navigator.onLine ? 'Sync error: ' + e.message : 'Offline') + (queue.length ? ` · ${queue.length} change(s) pending` : ''));
-  } finally { syncing = false; settleGoals(); render(); }
+  } finally { syncing = false; settleGoals(); if (!typingNote()) render(); }
 }
 
+const typingNote = () => document.activeElement?.matches?.('.qnote');
 function upsert(t) {
   const i = tasks.findIndex(x => x.id === t.id);
   if (i < 0) tasks.unshift(t); else tasks[i] = t;
@@ -291,12 +294,12 @@ function render() {
     return `<div class="item ${isOpen(t) ? '' : 'done'}${met ? ' met' : ''}" data-id="${t.id}">
       <div class="row">${plus ? `<button class="plus${met ? ' met' : ''}" data-a="log" aria-label="log a session">+1</button>` : `<input type="checkbox" data-a="toggle" ${t.status === 'done' ? 'checked' : ''}>`}
         <span class="t" data-a="edit">${esc(t.task)}${t.status === 'doing' ? ' <small>(doing)</small>' : ''}</span>
-        ${t.notes && !goal && !ed ? `<button class="nbtn${notesOpen.has(t.id) ? ' on' : ''}" data-a="note" aria-label="show note">💬</button>` : ''}
+        ${!ed ? `<button class="nbtn${t.notes ? '' : ' empty'}${notesOpen.has(t.id) ? ' on' : ''}" data-a="note" aria-label="${t.notes ? 'show note' : 'add note'}">💬</button>` : ''}
         <span class="due ${goal ? '' : over ? 'over' : tmrw ? 'tmrw' : soon ? 'soon' : ''}">${esc(showDate(t.due))}</span>
         ${t.status === 'done' && t.completed_at ? `<span class="due">done ${esc(showDate(t.completed_at))}</span>` : ''}
         ${t.status === 'missed' ? '<span class="due">missed</span>' : ''}</div>
       ${t.repeat ? `<div class="rep"${plus ? ' data-a="hist"' : ''}>↻ ${esc(repeatLabel(t.repeat))}${plus ? (histOpen.has(t.series) ? ' ▴ history' : ' ▾ history') : t.series ? ' · ' + seriesStats(t.series) : ''}</div>${plus ? goalBox(t) : ''}${plus && histOpen.has(t.series) ? histHtml(t) : ''}` : ''}
-      ${t.notes && !ed && (goal || notesOpen.has(t.id)) ? `<div class="notes">${esc(t.notes)}</div>` : ''}
+      ${!ed && notesOpen.has(t.id) ? `<textarea class="qnote" name="qnote" rows="3" placeholder="Add a note…">${esc(t.notes)}</textarea>` : ''}
       ${ed ? `<div class="edit"><input name="task" value="${esc(t.task)}">
         <div class="two"><input name="due" type="date" value="${esc(t.due)}">
         <select name="status">${STATUSES.map(s => `<option ${s === t.status ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
@@ -342,12 +345,12 @@ $('#list').addEventListener('click', e => {
   const a = e.target.closest('[data-a]')?.dataset.a, item = e.target.closest('.item'); if (!a || !item) return;
   const t = tasks.find(x => x.id === item.dataset.id);
   if (a === 'log') logSession(t);
-  else if (a === 'note') { notesOpen.has(t.id) ? notesOpen.delete(t.id) : notesOpen.add(t.id); render(); }
+  else if (a === 'note') { const open = !notesOpen.has(t.id); open ? notesOpen.add(t.id) : notesOpen.delete(t.id); render(); if (open && !t.notes) document.querySelector(`[data-id="${t.id}"] .qnote`)?.focus(); }
   else if (a === 'histall') { histAll.has(t.series) ? histAll.delete(t.series) : histAll.add(t.series); render(); }
   else if (a === 'hist') { histOpen.has(t.series) ? histOpen.delete(t.series) : histOpen.add(t.series); render(); }
   else if (a === 'toggle') { if (isGoal(t.repeat)) del(t.id); else if (t.status === 'done') reopen(t); else if (t.repeat) advance(t, 'done'); else upsert(withStatus(t, 'done')); }
   else if (a === 'skip') { editing = null; advance(t, 'missed'); }
-  else if (a === 'edit') { editing = editing === t.id ? null : t.id; render(); }
+  else if (a === 'edit') { editing = editing === t.id ? null : t.id; notesOpen.delete(t.id); render(); }
   else if (a === 'cancel') { editing = null; render(); }
   else if (a === 'del') { if (confirm('Delete this task?')) { editing = null; del(t.id); } }
   else if (a === 'save') {
@@ -371,8 +374,17 @@ $('#dlg').addEventListener('close', () => {
   if ($('#dlg').returnValue !== 'ok') return;
   const f = $('#cfgForm'); cfg = { url: f.url.value.trim(), token: f.token.value.trim() }; save('cfg', cfg); sync();
 });
-document.addEventListener('visibilitychange', () => { if (!document.hidden) setDueDefault(); if (!document.hidden && !editing) sync(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) setDueDefault(); if (!document.hidden && !editing && !typingNote()) sync(); });
 window.addEventListener('online', sync);
+// quick note: saves when you tap away; the list refresh waits a moment so a tap on another row is not lost
+$('#list').addEventListener('focusout', e => {
+  if (!e.target.matches?.('.qnote')) return;
+  const t = tasks.find(x => x.id === e.target.closest('.item')?.dataset.id);
+  if (!t || e.target.value === (t.notes || '')) return;
+  const n = { ...t, notes: e.target.value };
+  tasks[tasks.indexOf(t)] = n; save('tasks', tasks); queue.push({ action: 'upsert', task: n }); save('queue', queue);
+  setTimeout(() => { if (!typingNote()) { render(); sync(); } }, 600);
+});
 // while typing a note, grow the box to fill the space above the keyboard, leaving the buttons visible
 const noteBoxes = () => document.querySelectorAll('textarea[name=notes]');
 const fitNote = ta => {
@@ -383,11 +395,11 @@ const fitNote = ta => {
 const activeNote = () => document.activeElement?.matches?.('textarea[name=notes]') ? document.activeElement : null;
 document.addEventListener('focusin', e => {
   if (e.target.name === 'notes') { e.target.scrollIntoView({ block: 'start' }); fitNote(e.target); setTimeout(refit, 350); setTimeout(refit, 800); }
-  else noteBoxes().forEach(n => n.style.height = '');
+  else { noteBoxes().forEach(n => n.style.height = ''); if (e.target.matches?.('.qnote')) e.target.scrollIntoView({ block: 'center' }); }
 });
 const refit = () => { const n = activeNote(); if (n) { n.scrollIntoView({ block: 'start' }); fitNote(n); } };
 window.visualViewport?.addEventListener('resize', refit);
-setInterval(() => { if (!document.hidden && !editing) sync(); }, 30000);
+setInterval(() => { if (!document.hidden && !editing && !typingNote()) sync(); }, 30000);
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
 setDueDefault(); setStatusDefault(); settleGoals(); render(); sync();
 </script>
