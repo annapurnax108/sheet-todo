@@ -36,8 +36,15 @@ body, button, select, input, textarea { text-transform: lowercase; }
   .wweek { display:flex; overflow-x:auto; scroll-snap-type:x mandatory; scrollbar-width:none; margin-top:10px; } .wweek::-webkit-scrollbar { display:none; }
   .wpage { flex:0 0 100%; scroll-snap-align:start; display:grid; grid-template-columns:repeat(7,1fr); gap:4px; text-align:center; }
   .wday[data-a] { cursor:pointer; } .wday small { display:block; font-size:10px; opacity:.7; } .wday.sel { border-color:var(--fg); }
+  .tcount { color:var(--acc); } .wyest.bad { color:var(--bad); } .tmid { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:6px; } .tmid .wcheer { margin:0; }
+  .tprog { height:6px; border-radius:3px; background:var(--line); margin-top:8px; overflow:hidden; } .tprog i { display:block; height:100%; background:var(--good); border-radius:3px; }
+  .seg { display:inline-flex; flex:none; border:1px solid var(--line); border-radius:8px; overflow:hidden; } .seg button { border:none; border-radius:0; padding:3px 10px; font-size:12px; background:transparent; } .seg button.on { background:var(--acc); color:#fff; }
+  .gdot { display:block; width:5px; height:5px; border-radius:50%; margin:2px auto 0; } .gdot.on { background:var(--good); }
+  .tgoals { margin-top:10px; border-top:1px solid var(--line); padding-top:8px; } .tgoal { display:flex; align-items:center; gap:8px; font-size:13px; padding:2px 0; } .tgn { flex:none; max-width:35%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .tgoal .pips { flex:none; margin:0; gap:4px; } .tgoal .pip { width:12px; height:12px; } .tgs { margin-left:auto; color:var(--mut); text-align:right; } .need { color:var(--tmrw); font-weight:600; }
+  .wday.past { opacity:.55; } .wday.over b { color:var(--bad); } .wday.heavy { background:var(--edit-bg); }
+  .dayhead { display:flex; justify-content:space-between; font-size:13px; color:var(--mut); margin:12px 2px 4px; } .dayhead[data-a] { cursor:pointer; } .dayhead.over { color:var(--bad); }
   .wchip { position:relative; text-decoration:underline dotted; text-underline-offset:3px; cursor:pointer; }
-  .wdate { position:absolute; inset:0; width:100%; height:100%; opacity:0; font-size:16px; cursor:pointer; }
+  .wdate, .tdate { position:absolute; inset:0; width:100%; height:100%; opacity:0; font-size:16px; cursor:pointer; }
   .wback { font-size:13px; color:var(--acc); margin-top:8px; cursor:pointer; text-align:right; }
   .wday { border:1px solid var(--line); border-radius:8px; padding:4px 0; font-size:12px; color:var(--mut); } .wday b { display:block; font-size:16px; color:var(--fg); }
   .wday.today { border-color:var(--acc); background:var(--edit-bg); } .wday.today b { color:var(--acc); } .wday.future { opacity:.45; }
@@ -145,7 +152,7 @@ const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; 
 const save = (k, v) => localStorage.setItem(k, JSON.stringify(v));
 const norm = t => ({ repeat: '', repeat_from: '', series: '', ...t, status: String(t.status || 'todo').toLowerCase() }); // sheet may hold Done/done
 const isOpen = t => t.status !== 'done' && t.status !== 'missed';
-let cfg = load('cfg', {}), tasks = load('tasks', []).map(norm), queue = load('queue', []), filter = 'Today', query = '', editing = null, syncing = false, histOpen = new Set(), histAll = new Set(), notesOpen = new Set(), dueOpen = null, winsDay = null, winsScroll = null, winsJump = false;
+let cfg = load('cfg', {}), tasks = load('tasks', []).map(norm), queue = load('queue', []), filter = 'Today', query = '', editing = null, syncing = false, histOpen = new Set(), histAll = new Set(), notesOpen = new Set(), dueOpen = null, winsDay = null, winsScroll = null, winsJump = false, todayDay = null, todayWeek = false, todayScroll = null, todayJump = false;
 
 const uuid = () => crypto.randomUUID ? crypto.randomUUID() : 'id-' + Date.now() + Math.random().toString(16).slice(2);
 const today = () => new Date().toLocaleDateString('en-CA');
@@ -287,7 +294,7 @@ function seriesStats(series) {
 // completed_at: keep an existing date if already Done, set today on becoming Done, clear on reopening
 const withStatus = (t, status) => ({ ...t, status, completed_at: status !== 'done' ? '' : (t.status === 'done' && t.completed_at) || today() });
 // pre-fill the add form's due date with today (and roll it over if the app stays open past midnight)
-function setDueDefault() { const i = $('#add').due, d = today(); if (!i.value || i.value === i.defaultValue) i.value = d; i.defaultValue = d; }
+function setDueDefault() { const i = $('#add').due, d = (filter === 'Today' && todayDay) || today(); if (!i.value || i.value === i.defaultValue) i.value = d; i.defaultValue = d; }
 
 async function call(body) {
   const r = await fetch(cfg.url, { method: 'POST', body: JSON.stringify({ token: cfg.token, ...body }) }); // text/plain => no CORS preflight
@@ -364,24 +371,82 @@ function winsHtml() {
   return `<div class="wins"><div class="wtop"><span class="wcount">${n}</span><span class="wlabel">${label}</span><span class="wyest">${isToday ? 'yesterday' : 'day before'} ${y} ${delta}</span></div>`
     + `<div class="wcheer">${esc(cheer)}</div>${notes ? `<div class="wnote">${esc(notes)}</div>` : ''}<div class="wweek">${weeks}</div>${isToday ? '' : '<div class="wback" data-a="winback">back to today →</div>'}</div>${goals}`;
 }
+// "today" view: what is due, a strip of upcoming days with their task counts, and a day / week switch
+const todayPick = t => {
+  if (!isOpen(t)) return false;
+  const td = today(), base = todayDay || td;
+  if (todayWeek) {
+    const sun = weekEnd(base), cur = weekEnd(td) === sun, lo = cur ? td : addPeriod(sun, 'daily', -6);
+    return isGoal(t.repeat) ? cur : !!t.due && ((cur && t.due < td) || (t.due >= lo && t.due <= sun));
+  }
+  return todayDay ? !isGoal(t.repeat) && t.due === todayDay : isGoal(t.repeat) || !!t.due && t.due <= td;
+};
+const todayGroup = t => isGoal(t.repeat) ? 'z' : t.due < today() ? '0' : t.due; // week view: overdue first, then each day, goals last
+const dayLabel = d => new Date(d + 'T00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+const dayHeadHtml = (g, n) => `<div class="dayhead${g === '0' ? ' over' : ''}"${g.length === 10 ? ` data-a="todayday" data-day="${g}"` : ''}><span>${g === 'z' ? 'goals this week' : g === '0' ? 'overdue' : esc(dayLabel(g))}</span><span>${n}</span></div>`;
+// a weekly goal's state for today: sessions left, days left (counting today) and whether today can no longer be skipped
+const goalState = g => {
+  const td = today(), n = parseRepeat(g.repeat).n, got = goalDone(g), left = Math.max(0, n - got);
+  const daysLeft = Math.round((new Date(g.due + 'T00:00') - new Date(td + 'T00:00')) / 864e5) + 1;
+  const loggedToday = tasks.some(x => x.series === g.series && x.status === 'done' && x.completed_at === td);
+  return { g, n, got, left, daysLeft, loggedToday, needed: left > 0 && !loggedToday && left >= daysLeft };
+};
+function todayHtml() {
+  const td = today(), day = todayDay || td, isToday = !todayDay, cur = weekEnd(day) === weekEnd(td), cnt = {};
+  const open = tasks.filter(t => isOpen(t) && !isGoal(t.repeat) && t.due);
+  open.forEach(t => { cnt[t.due] = (cnt[t.due] || 0) + 1; });
+  const overdue = open.filter(t => t.due < td).length, dueNow = open.filter(t => t.due <= td).length;
+  const goals = tasks.filter(t => isOpen(t) && isGoal(t.repeat) && t.due >= td).map(goalState), needed = goals.filter(x => x.needed);
+  const doneDated = tasks.filter(t => t.status === 'done' && t.completed_at === td && !isGoal(t.repeat)).length, doneGoals = goals.filter(x => x.loggedToday).length, doneToday = doneDated + doneGoals;
+  const goalDays = new Set(tasks.filter(t => t.status === 'done' && isGoal(t.repeat) && t.completed_at).map(t => t.completed_at));
+  cnt[td] = dueNow; // today's cell is today's list: due today plus anything overdue
+  // today's number = dated tasks due (plus overdue) and weekly goals that can no longer skip today; optional sessions are shown apart
+  const n = todayWeek ? tasks.filter(t => todayPick(t) && !isGoal(t.repeat)).length : isToday ? dueNow + needed.length : cnt[day] || 0;
+  const next = Object.keys(cnt).filter(d => d > td && cnt[d]).sort()[0];
+  const coach = !isToday || todayWeek ? (n ? `${n} task${n === 1 ? '' : 's'} planned.` : 'Nothing planned.')
+    : !n ? (doneToday ? 'All clear for today 🎉' : 'Nothing due today.') + (next ? ` Next: ${dayLabel(next)} (${cnt[next]}).` : '')
+    : (overdue ? 'Start with the oldest.' : n === 1 ? 'Almost there, 1 left.' : `${n} to go. You've got this.`) + (needed.length ? ` ${needed.map(x => x.g.task).join(', ')} needed today.` : '');
+  const total = doneToday + dueNow + needed.length, pct = total ? Math.round(100 * doneToday / total) : 0;
+  const prog = isToday && !todayWeek && total ? `<div class="tprog"><i style="width:${pct}%"></i></div><div class="wnote">${doneToday} of ${total} done today</div>` : '';
+  const thisMon = addPeriod(weekEnd(td), 'daily', -6), minDay = td, maxDay = addPeriod(td, 'daily', 7 * 259);
+  const ahead = Math.round((new Date(addPeriod(weekEnd(day), 'daily', -6) + 'T00:00') - new Date(thisMon + 'T00:00')) / (7 * 864e5)), pages = Math.min(260, Math.max(12, ahead + 1));
+  const strip = Array.from({ length: pages }, (_, k) => {
+    const mon = addPeriod(thisMon, 'daily', 7 * k);
+    return `<div class="wpage">${Array.from({ length: 7 }, (_, i) => {
+      const dd = addPeriod(mon, 'daily', i), c = cnt[dd] || 0, past = dd < td, go = !past || c;
+      const gd = goals.length || goalDays.size ? `<i class="gdot${goalDays.has(dd) ? ' on' : ''}"></i>` : '';
+      return `<div class="wday${dd === td ? ' today' : ''}${dd === todayDay ? ' sel' : ''}${past ? ' past' : ''}${past && c ? ' over' : ''}${c >= 5 ? ' heavy' : ''}"${go ? ` data-a="todayday" data-day="${dd}"` : ''}>${'MTWTFSS'[i]}<b>${c || '·'}</b><small>${+dd.slice(8)}</small>${gd}</div>`;
+    }).join('')}</div>`;
+  }).join('');
+  const goalRows = (isToday && !todayWeek || todayWeek && cur) && goals.length ? `<div class="tgoals">${goals.map(x => `<div class="tgoal"><span class="tgn">${esc(x.g.task)}</span><span class="pips">${Array.from({ length: Math.min(10, x.n) }, (_, i) => `<i class="pip${i < x.got ? (x.left ? ' on' : ' met') : ''}"></i>`).join('')}</span><span class="tgs">${x.left ? `${x.left} to go · ${x.daysLeft} day${x.daysLeft === 1 ? '' : 's'} left` : '✓ met'}${x.needed ? ' <b class="need">needed today</b>' : ''}</span></div>`).join('')}</div>` : '';
+  const wkText = cur ? 'this week' : 'week of ' + shortDay(addPeriod(weekEnd(day), 'daily', -6));
+  const chip = `<label class="wchip"><span>${todayWeek ? wkText : isToday ? 'today' : dayLabel(day)} ▾</span><input class="tdate" type="date" value="${day}" min="${minDay}" max="${maxDay}" aria-label="go to a date"></label>`;
+  const seg = `<span class="seg"><button data-a="todayview" data-v="day" class="${todayWeek ? '' : 'on'}">day</button><button data-a="todayview" data-v="week" class="${todayWeek ? 'on' : ''}">week</button></span>`;
+  return `<div class="wins"><div class="wtop"><span class="wcount tcount">${n}</span><span class="wlabel">${isToday && !todayWeek ? 'to do' : 'due'} ${chip}</span>${isToday && overdue ? `<span class="wyest bad">${overdue} overdue</span>` : ''}</div>`
+    + `<div class="tmid"><span class="wcheer">${esc(coach)}</span>${seg}</div>${prog}<div class="wweek tweek">${strip}</div>${goalRows}${todayDay ? '<div class="wback tback" data-a="todayback">← back to today</div>' : ''}</div>`;
+}
 function render() {
   const fbtn = f => `<button data-f="${f}" class="${f === filter ? 'on' : ''}"${f === 'Repeat' ? ' title="repeating" aria-label="repeating"' : ''}>${FLABEL[f] || f}</button>`;
   $('#filters').innerHTML = `<div class="frow">${MAIN.map(fbtn).join('')}<button data-more aria-label="more filters" class="${MORE.includes(filter) ? 'on' : ''}">${MORE.includes(filter) ? FLABEL[filter] || filter : '⋯'}</button></div>`
     + (moreOpen ? `<div class="frow">${MORE.map(fbtn).join('')}</div>` : '');
-  const shown = tasks.filter(t => query ? ((t.task || '') + ' ' + (t.notes || '')).toLowerCase().includes(query) : filter === 'Wins' ? t.status === 'done' && t.completed_at === (winsDay || today()) && !isGoal(t.repeat) : filter === 'All' ? true : filter === 'Open' ? isOpen(t) : filter === 'Today' ? isOpen(t) && (isGoal(t.repeat) || t.due && t.due <= today()) : filter === 'Repeat' ? isOpen(t) && t.repeat : t.status === filter)
+  const shown = tasks.filter(t => query ? ((t.task || '') + ' ' + (t.notes || '')).toLowerCase().includes(query) : filter === 'Wins' ? t.status === 'done' && t.completed_at === (winsDay || today()) && !isGoal(t.repeat) : filter === 'All' ? true : filter === 'Open' ? isOpen(t) : filter === 'Today' ? todayPick(t) : filter === 'Repeat' ? isOpen(t) && t.repeat : t.status === filter)
     .sort((a, b) => !isOpen(a) - !isOpen(b)
+      || (filter === 'Today' && todayWeek && isOpen(a) ? todayGroup(a).localeCompare(todayGroup(b)) : 0)
       || (filter === 'Today' && isOpen(a) ? !!a.repeat - !!b.repeat || isGoal(a.repeat) - isGoal(b.repeat) : 0) // Today: repeating tasks sink to the bottom, weekly goals last
       || (!isOpen(a) ? (b.completed_at || b.due || '').localeCompare(a.completed_at || a.due || '') || (b.updated_at || '').localeCompare(a.updated_at || '') // same day: latest change first
         : (a.due || '9999').localeCompare(b.due || '9999')));
   $('#searchBtn').classList.toggle('on', !!query);
-  const winsHead = filter === 'Wins' && !query ? winsHtml() : '';
+  const winsHead = !query ? (filter === 'Wins' ? winsHtml() : filter === 'Today' ? todayHtml() : '') : '';
+  const wkMode = filter === 'Today' && todayWeek && !query, gcount = {}, gseen = {};
+  if (wkMode) shown.forEach(t => { const g = todayGroup(t); gcount[g] = (gcount[g] || 0) + 1; });
   $('#list').innerHTML = winsHead + (shown.map(t => {
+    const gk = wkMode ? todayGroup(t) : '', head = wkMode && !gseen[gk] ? (gseen[gk] = 1, dayHeadHtml(gk, gcount[gk])) : '';
     const over = t.due && isOpen(t) && t.due < today();
     const soon = t.due && isOpen(t) && t.due > today() && t.due <= inDays(7);
     const tmrw = soon && t.due === inDays(1);
     const ed = editing === t.id, goal = isGoal(t.repeat), plus = goal && isOpen(t), win = filter === 'Wins' && !query && t.status === 'done'; // done-today rows read like the weekly-goal ones
     const goalN = goal ? parseRepeat(t.repeat).n : 0, got = plus ? goalDone(t) : 0, met = plus && got >= goalN;
-    return `<div class="item ${isOpen(t) ? '' : 'done'}${win ? ' win' : ''}${met ? ' met' : ''}${ed ? ' editing' : notesOpen.has(t.id) ? ' noting' : ''}" data-id="${t.id}">
+    return head + `<div class="item ${isOpen(t) ? '' : 'done'}${win ? ' win' : ''}${met ? ' met' : ''}${ed ? ' editing' : notesOpen.has(t.id) ? ' noting' : ''}" data-id="${t.id}">
       <div class="row">${plus ? `<button class="plus${met ? ' met' : ''}" data-a="log" aria-label="log a session">+1</button>` : win ? `<button class="tick" data-a="toggle" aria-label="undo done" title="undo">✓</button>` : `<input type="checkbox" data-a="toggle" ${t.status === 'done' ? 'checked' : ''}>`}
         <span class="t" data-a="edit">${esc(t.task)}${t.status === 'doing' ? ' <small>(doing)</small>' : ''}</span>
         ${!ed ? `<button class="nbtn${t.notes ? '' : ' empty'}${notesOpen.has(t.id) ? ' on' : ''}" data-a="note" aria-label="${t.notes ? 'show note' : 'add note'}">💬</button>` : ''}
@@ -403,7 +468,9 @@ function render() {
   }).join('') || (winsHead ? '' : `<p style="color:var(--mut)">${query ? 'No matches.' : 'Nothing here.'}</p>`));
   document.querySelectorAll('.qnote').forEach(growNote);
   // strip: a picked day shows its week (today: the current week); otherwise keep the page you were on
-  const wk = document.querySelector('.wweek'); if (wk) { if (winsJump) { const sel = wk.querySelector('.sel'); wk.scrollLeft = sel ? sel.parentNode.getBoundingClientRect().left - wk.getBoundingClientRect().left + wk.scrollLeft : wk.scrollWidth; winsScroll = sel ? wk.scrollLeft : null; winsJump = false; } else wk.scrollLeft = winsScroll ?? wk.scrollWidth; wk.onscroll = () => { winsScroll = wk.scrollLeft; }; } // strip: keep the page you were on
+  const tk = document.querySelector('.tweek'); // upcoming strip: opens on this week; a picked day shows its week
+  if (tk) { if (todayJump) { const sel = tk.querySelector('.sel'); tk.scrollLeft = sel ? sel.parentNode.getBoundingClientRect().left - tk.getBoundingClientRect().left + tk.scrollLeft : 0; todayScroll = sel ? tk.scrollLeft : null; todayJump = false; } else tk.scrollLeft = todayScroll ?? 0; tk.onscroll = () => { todayScroll = tk.scrollLeft; }; }
+  const wk = document.querySelector('.wweek:not(.tweek)'); if (wk) { if (winsJump) { const sel = wk.querySelector('.sel'); wk.scrollLeft = sel ? sel.parentNode.getBoundingClientRect().left - wk.getBoundingClientRect().left + wk.scrollLeft : wk.scrollWidth; winsScroll = sel ? wk.scrollLeft : null; winsJump = false; } else wk.scrollLeft = winsScroll ?? wk.scrollWidth; wk.onscroll = () => { winsScroll = wk.scrollLeft; }; } // strip: keep the page you were on
   document.body.classList.toggle('typing', !!editing || !!document.querySelector('.qnote')); // extra room below while a note box is open
 }
 
@@ -431,6 +498,9 @@ addForm.addEventListener('submit', e => {
 const syncEvery = sel => { const n = sel.form ? sel.form.elements.every : sel.parentNode.querySelector('[name=every]'); n.disabled = !sel.value; (sel.form ? sel.form.elements.repeat_from : sel.parentNode.querySelector('[name=repeat_from]')).disabled = sel.value === 'goal'; };
 document.addEventListener('change', e => {
   if (e.target.name === 'repeat') syncEvery(e.target);
+  if (e.target.classList?.contains('tdate') && e.target.value) { // upcoming view: jump to a picked day
+    todayDay = e.target.value === today() ? null : e.target.value; todayJump = true; todayScroll = null; setDueDefault(); render();
+  }
   if (e.target.classList?.contains('wdate') && e.target.value) { // jump to a picked date in the done-today view
     winsDay = e.target.value === today() ? null : e.target.value; winsJump = true; winsScroll = null; render();
   }
@@ -443,11 +513,14 @@ addForm.addEventListener('reset', () => setTimeout(() => syncEvery(addEl('repeat
 $('#filters').addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
   if ('more' in b.dataset) { moreOpen = !moreOpen; render(); }
-  else if (b.dataset.f) { filter = b.dataset.f; winsDay = null; winsScroll = null; moreOpen = false; setStatusDefault(); render(); }
+  else if (b.dataset.f) { filter = b.dataset.f; winsDay = null; winsScroll = null; todayDay = null; todayWeek = false; todayScroll = null; moreOpen = false; setStatusDefault(); setDueDefault(); render(); }
 });
 $('#list').addEventListener('click', e => {
   const a = e.target.closest('[data-a]')?.dataset.a, item = e.target.closest('.item');
   if (a === 'winday') { const d = e.target.closest('[data-day]').dataset.day; winsDay = d === today() ? null : d; if (!winsDay) winsScroll = null; render(); return; }
+  if (a === 'todayday') { const d = e.target.closest('[data-day]').dataset.day; if (e.target.closest('.dayhead')) todayWeek = false; todayDay = d === today() ? null : d; if (!todayDay) todayScroll = null; setDueDefault(); render(); return; }
+  if (a === 'todayback') { todayDay = null; todayScroll = null; setDueDefault(); render(); return; }
+  if (a === 'todayview') { todayWeek = e.target.closest('[data-v]').dataset.v === 'week'; render(); return; }
   if (a === 'winback') { winsDay = null; winsScroll = null; render(); return; } // back to today also brings the strip to this week
   if (!a || !item) return;
   const t = tasks.find(x => x.id === item.dataset.id);
@@ -486,7 +559,7 @@ $('#dlg').addEventListener('close', () => {
 });
 document.addEventListener('visibilitychange', () => { if (!document.hidden) setDueDefault(); if (!document.hidden && !editing && !typingNote()) sync(); });
 window.addEventListener('online', sync);
-$('#list').addEventListener('click', e => { if (e.target.classList?.contains('wdate')) try { e.target.showPicker(); } catch {} }); // desktop: open the calendar
+$('#list').addEventListener('click', e => { if (e.target.classList?.contains('wdate') || e.target.classList?.contains('tdate')) try { e.target.showPicker(); } catch {} }); // desktop: open the calendar
 $('#list').addEventListener('input', e => { if (e.target.matches?.('.qnote')) growNote(e.target); });
 // quick note: saves and closes when you tap away; the list refresh waits a moment so a tap on another row is not lost
 let bubbleTap = { id: '', at: 0 };
