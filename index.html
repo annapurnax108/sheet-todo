@@ -36,7 +36,7 @@ body, button, select, input, textarea { text-transform: lowercase; }
   .wweek { display:flex; overflow-x:auto; scroll-snap-type:x mandatory; scrollbar-width:none; margin-top:10px; } .wweek::-webkit-scrollbar { display:none; }
   .wpage { flex:0 0 100%; scroll-snap-align:start; display:grid; grid-template-columns:repeat(7,1fr); gap:4px; text-align:center; }
   .wday[data-a] { cursor:pointer; } .wday small { display:block; font-size:10px; opacity:.7; } .wday.sel { border-color:var(--fg); }
-  .wback { font-size:13px; color:var(--acc); margin-top:8px; cursor:pointer; }
+  .wback { font-size:13px; color:var(--acc); margin-top:8px; cursor:pointer; text-align:right; }
   .wday { border:1px solid var(--line); border-radius:8px; padding:4px 0; font-size:12px; color:var(--mut); } .wday b { display:block; font-size:16px; color:var(--fg); }
   .wday.today { border-color:var(--acc); background:var(--edit-bg); } .wday.today b { color:var(--acc); } .wday.future { opacity:.45; }
   .filters button.on { background:var(--acc); color:#fff; border-color:var(--acc); }
@@ -130,7 +130,7 @@ const parseRepeat = r => { const [unit, n] = String(r || '').split('/'); return 
 const fmtRepeat = (unit, n) => !unit ? '' : (n = Math.max(1, parseInt(n, 10) || 1)) > 1 ? `${unit}/${n}` : unit;
 const isGoal = r => parseRepeat(r).unit === 'goal';
 const repeatLabel = r => { const { unit, n } = parseRepeat(r); if (unit === 'goal') return `${n}× a week`; return n > 1 ? `every ${n} ${UNITS[unit]}s` : unit; };
-const MAIN = ['Open', 'Today', 'doing', 'done'], MORE = ['missed', 'todo', 'Repeat', 'All', 'Wins']; // filter buttons: main row, and the ⋯ menu
+const MAIN = ['Open', 'Today', 'doing', 'Wins'], MORE = ['missed', 'done', 'todo', 'Repeat', 'All']; // filter buttons: main row, and the ⋯ menu
 const FLABEL = { Wins: '✓ today', Repeat: '↻' }; // button text where it differs from the filter name
 let moreOpen = false;
 const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
@@ -351,7 +351,7 @@ function winsHtml() {
     return `<div class="item wingoal${got >= N ? ' met' : ''}"><div class="row"><span class="t">✓ ${esc(rows[0].task)} ×${rows.length}</span><span class="due">${got} of ${N} ${isToday ? 'this' : 'that'} week${got >= N ? ' ✓' : ''}</span></div></div>`;
   }).join('');
   return `<div class="wins"><div class="wtop"><span class="wcount">${n}</span><span class="wlabel">${label}</span><span class="wyest">${isToday ? 'yesterday' : 'day before'} ${y} ${delta}</span></div>`
-    + `<div class="wcheer">${esc(cheer)}</div>${notes ? `<div class="wnote">${esc(notes)}</div>` : ''}<div class="wweek">${weeks}</div>${isToday ? '' : '<div class="wback" data-a="winback">← back to today</div>'}</div>${goals}`;
+    + `<div class="wcheer">${esc(cheer)}</div>${notes ? `<div class="wnote">${esc(notes)}</div>` : ''}<div class="wweek">${weeks}</div>${isToday ? '' : '<div class="wback" data-a="winback">back to today →</div>'}</div>${goals}`;
 }
 function render() {
   const fbtn = f => `<button data-f="${f}" class="${f === filter ? 'on' : ''}"${f === 'Repeat' ? ' title="repeating" aria-label="repeating"' : ''}>${FLABEL[f] || f}</button>`;
@@ -400,7 +400,7 @@ const addForm = $('#add'), addEl = n => addForm.elements[n];
 addEl('status').innerHTML = ['todo', 'doing', 'done'].map(s => `<option>${s}</option>`).join('');
 addEl('repeat').innerHTML = REPEATS.map(r => `<option value="${r}">${repeatOpt(r)}</option>`).join('');
 addEl('repeat_from').innerHTML = '<option value="due">from due date</option><option value="done">from completion</option>';
-const setStatusDefault = () => addEl('status').value = filter === 'doing' || filter === 'done' ? filter : 'todo';
+const setStatusDefault = () => addEl('status').value = filter === 'doing' || filter === 'done' ? filter : filter === 'Wins' ? 'done' : 'todo'; // a task added in these filters starts in that stage
 let skipOpen = false;
 const focusTask = () => { skipOpen = true; addEl('task').focus(); skipOpen = false; };
 ['focus', 'click'].forEach(ev => addEl('task').addEventListener(ev, () => { if (!skipOpen) $('#more').hidden = false; }));
@@ -412,7 +412,7 @@ addForm.addEventListener('submit', e => {
   const goal = isGoal(repeat);
   const t = { id: uuid(), task: addEl('task').value.trim(), status: 'todo', due: goal ? weekEnd(today()) : addEl('due').value, notes: addEl('notes').value, completed_at: '',
     repeat, repeat_from: repeat && !goal ? addEl('repeat_from').value : '', series: repeat ? uuid() : '', updated_at: new Date().toISOString() };
-  if (goal) upsert(t); else if (repeat && status === 'done') advance(t, 'done', false); else upsert(withStatus(t, status));
+  if (goal) upsert(t); else if (repeat && status === 'done') advance(t, 'done', false); else { const row = withStatus(t, status); if (status === 'done' && filter === 'Wins' && winsDay) row.completed_at = winsDay; upsert(row); } // added while a past day is selected: done on that day
   addForm.reset(); setDueDefault(); setStatusDefault(); $('#more').hidden = true; focusTask();
 });
 // the "every N" box only applies while a repeat unit is chosen
