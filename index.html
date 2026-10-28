@@ -47,6 +47,10 @@ body, button, select, input, textarea { text-transform: lowercase; }
   .tgoals { margin-top:10px; border-top:1px solid var(--line); padding-top:8px; } .tgoal { display:flex; align-items:center; gap:8px; font-size:13px; padding:2px 0; } .tgn { flex:none; max-width:35%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .tgoal .pips { flex:none; margin:0; gap:4px; } .tgoal .pip { width:12px; height:12px; } .tgs { margin-left:auto; color:var(--mut); text-align:right; } .need { color:var(--tmrw); font-weight:600; }
   .wday.heavy { background:var(--edit-bg); }
   .dayhead { display:flex; justify-content:space-between; font-size:13px; color:var(--mut); margin:12px 2px 4px; } .dayhead[data-a] { cursor:pointer; } .dayhead.over { color:var(--bad); }
+  @keyframes slideInL { from { transform:translateX(24px); opacity:.3; } to { transform:none; opacity:1; } } @keyframes slideInR { from { transform:translateX(-24px); opacity:.3; } to { transform:none; opacity:1; } }
+  @keyframes nudgeL { 50% { transform:translateX(-10px); } } @keyframes nudgeR { 50% { transform:translateX(10px); } }
+  .slideInL { animation:slideInL .18s ease-out; } .slideInR { animation:slideInR .18s ease-out; } .nudgeL { animation:nudgeL .22s ease-out; } .nudgeR { animation:nudgeR .22s ease-out; }
+  @media (prefers-reduced-motion: reduce) { .slideInL, .slideInR, .nudgeL, .nudgeR { animation:none; } }
   .tagsug { grid-column:1/-1; display:flex; flex-wrap:wrap; gap:6px; } .tagsug[hidden] { display:none; } .sugchip { margin-left:0; padding:3px 10px; font-size:13px; line-height:20px; }
   .tagpick { display:contents; } .tpadd { display:flex; min-width:0; } .tpadd > * { min-width:0; width:100%; } .tpchips { grid-column:1/-1; display:flex; flex-wrap:wrap; gap:6px; } .tpchips:empty { display:none; } .tpchips .tchip { margin-left:0; padding:0 4px 0 9px; } .tchip .tpdel { margin-left:6px; padding:0 4px; opacity:.7; cursor:pointer; } .edit .two.tagged .tpadd { grid-column:1/-1; }
   .tchip { display:inline-block; margin-left:6px; padding:0 7px; border-radius:999px; font-size:11px; line-height:18px; vertical-align:middle; white-space:nowrap; cursor:pointer; background:hsl(var(--h) 70% 90%); color:hsl(var(--h) 60% 28%); }
@@ -594,8 +598,32 @@ addForm.addEventListener('reset', () => setTimeout(() => syncEvery(addEl('repeat
 $('#filters').addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
   if ('more' in b.dataset) { moreOpen = !moreOpen; render(); }
-  else if (b.dataset.f) { filter = b.dataset.f; winsDay = null; winsScroll = null; todayDay = null; todayWeek = false; todayScroll = null; moreOpen = false; setStatusDefault(); setDueDefault(); render(); }
+  else if (b.dataset.f) setFilter(b.dataset.f);
 });
+function setFilter(f) { filter = f; winsDay = null; winsScroll = null; todayDay = null; todayWeek = false; todayScroll = null; moreOpen = false; setStatusDefault(); setDueDefault(); render(); }
+// swipe the list sideways to step through the filters in the order they appear (left = next, right = previous)
+const FILTER_ORDER = [...MAIN, ...MORE];
+const slideList = cls => { const el = $('#list'); el.classList.remove('slideInL', 'slideInR', 'nudgeL', 'nudgeR'); void el.offsetWidth; el.classList.add(cls); el.addEventListener('animationend', () => el.classList.remove(cls), { once: true }); };
+function swipeFilter(dir) {
+  const j = FILTER_ORDER.indexOf(filter) + dir;
+  if (j < 0 || j >= FILTER_ORDER.length) { slideList(dir > 0 ? 'nudgeL' : 'nudgeR'); return; } // already at the first / last filter
+  setFilter(FILTER_ORDER[j]); slideList(dir > 0 ? 'slideInL' : 'slideInR');
+  document.querySelector('#filters .frow button.on')?.scrollIntoView({ inline: 'nearest', block: 'nearest' });
+}
+let swipe = null;
+const swipeBlocked = el => !!el.closest?.('.wweek, .tweek, #filters, input, textarea, select, .edit, .qnote, #more, #searchRow, dialog'); // scrollable strips, fields and open cards keep their own gestures
+$('main').addEventListener('touchstart', e => {
+  const t = e.touches[0]; swipe = null;
+  if (e.touches.length !== 1 || editing || document.querySelector('.qnote') || swipeBlocked(e.target)) return;
+  if (t.clientX < 24 || t.clientX > innerWidth - 24) return; // leave Safari's edge back/forward swipe alone
+  swipe = { x: t.clientX, y: t.clientY, at: Date.now() };
+}, { passive: true });
+$('main').addEventListener('touchend', e => {
+  if (!swipe) return;
+  const t = e.changedTouches[0], dx = t.clientX - swipe.x, dy = t.clientY - swipe.y, dt = Date.now() - swipe.at; swipe = null;
+  if (Math.abs(dx) < 60 || Math.abs(dx) < 2 * Math.abs(dy) || dt > 600) return; // mostly sideways, deliberate and quick
+  swipeFilter(dx < 0 ? 1 : -1);
+}, { passive: true });
 $('#list').addEventListener('click', e => {
   const a = e.target.closest('[data-a]')?.dataset.a, item = e.target.closest('.item');
   if (a === 'winday') { const d = e.target.closest('[data-day]').dataset.day; winsDay = d === today() ? null : d; if (!winsDay) winsScroll = null; render(); return; }
