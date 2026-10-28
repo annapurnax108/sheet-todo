@@ -51,6 +51,7 @@ body, button, select, input, textarea { text-transform: lowercase; }
   @keyframes nudgeL { 50% { transform:translateX(-10px); } } @keyframes nudgeR { 50% { transform:translateX(10px); } }
   .slideInL { animation:slideInL .18s ease-out; } .slideInR { animation:slideInR .18s ease-out; } .nudgeL { animation:nudgeL .22s ease-out; } .nudgeR { animation:nudgeR .22s ease-out; }
   @media (prefers-reduced-motion: reduce) { .slideInL, .slideInR, .nudgeL, .nudgeR { animation:none; } }
+  .tpnote { grid-column:1/-1; font-size:12px; color:var(--mut); } .tpnote .tchip { margin-left:6px; opacity:.85; }
   .tagsug { grid-column:1/-1; display:flex; flex-wrap:wrap; gap:6px; } .tagsug[hidden] { display:none; } .sugchip { margin-left:0; padding:3px 10px; font-size:13px; line-height:20px; }
   .tagpick { display:contents; } .tpadd { display:flex; min-width:0; } .tpadd > * { min-width:0; width:100%; } .tpchips { grid-column:1/-1; display:flex; flex-wrap:wrap; gap:6px; } .tpchips:empty { display:none; } .tpchips .tchip { margin-left:0; padding:0 4px 0 9px; } .tchip .tpdel { margin-left:6px; padding:0 4px; opacity:.7; cursor:pointer; } .edit .two.tagged .tpadd { grid-column:1/-1; }
   .tchip { display:inline-block; margin-left:6px; padding:0 7px; border-radius:999px; font-size:11px; line-height:18px; vertical-align:middle; white-space:nowrap; cursor:pointer; background:hsl(var(--h) 70% 90%); color:hsl(var(--h) 60% 28%); }
@@ -133,7 +134,7 @@ body, button, select, input, textarea { text-transform: lowercase; }
     <div id="more" class="edit" hidden>
       <div class="two tagged"><div class="tagpick" data-tags=""><div class="tpadd"><select name="tag" aria-label="add a tag"></select><input name="newtag" placeholder="new tag" hidden autocomplete="off"></div><div class="tpchips"></div></div></div>
       <div class="three"><select name="repeat"></select><input name="every" type="number" min="1" value="1" title="Repeat every" aria-label="Repeat every" disabled><select name="repeat_from"></select></div>
-      <textarea name="notes" rows="6" placeholder="Notes"></textarea>
+      <textarea name="notes" rows="6" placeholder="Notes"></textarea><div class="tagsug" hidden></div>
       <div class="btns"><button type="button" id="addClose">✕ close</button><button class="primary">add</button></div>
     </div>
   </form>
@@ -172,7 +173,10 @@ const TAG_RE = /(^|\s)#([\p{L}\p{N}_-]+)/gu;
 const normTag = s => String(s || '').replace(/^#+/, '').trim().toLowerCase().replace(/\s+/g, '-').replace(/[^\p{L}\p{N}_-]/gu, '');
 function splitTags(text) { const tags = []; const title = String(text || '').replace(TAG_RE, (m, sp, tag) => { tag = tag.toLowerCase(); if (!tags.includes(tag)) tags.push(tag); return sp ? ' ' : ''; }).replace(/\s{2,}/g, ' ').trim(); return { title, tags }; }
 const joinTags = (title, tags) => [title, ...tags.map(g => '#' + g)].join(' ').trim();
-const tagsOf = t => splitTags(t.task).tags;
+// hashtags typed in a note tag the task too; in notes a tag must start with a letter, so "ticket #4521" isn't treated as a tag
+const NOTE_TAG_RE = /(^|\s)#(\p{L}[\p{L}\p{N}_-]*)/gu;
+const noteTags = text => [...new Set([...String(text || '').matchAll(NOTE_TAG_RE)].map(m => m[2].toLowerCase()))];
+const tagsOf = t => [...new Set([...splitTags(t.task).tags, ...noteTags(t.notes)])];
 // text for a new task: the picked tags go first, any #tags typed in the box are kept
 const composeNew = (typed, picks) => { const sp = splitTags(typed); return joinTags(sp.title, [...picks, ...sp.tags.filter(g => !picks.includes(g))]); };
 // text after editing: the picker holds the task's full tag list (so a removed chip stays removed); tags typed into the title are added
@@ -186,7 +190,7 @@ const tagChips = tags => tags.map(g => `<span class="tchip" data-a="tagpick" dat
 // multi-select tag picker: chips (with ✕) for the chosen tags, and a dropdown that adds one more (existing tags, or "+ new tag…")
 const tagAddOptions = picked => '<option value="">+ tag</option>' + allTags().filter(([g]) => !picked.includes(g)).map(([g, n]) => `<option value="${esc(g)}">${esc(g)} (${n})</option>`).join('') + '<option value="__new">+ new tag…</option>';
 const pickChips = tags => tags.map(g => `<span class="tchip" style="--h:${tagHue(g)}">${esc(g)}<b class="tpdel" data-tag="${esc(g)}" role="button" aria-label="remove tag ${esc(g)}">✕</b></span>`).join('');
-const tagPickHtml = tags => `<div class="tagpick" data-tags="${esc(tags.join(' '))}"><div class="tpadd"><select name="tag" aria-label="add a tag">${tagAddOptions(tags)}</select><input name="newtag" placeholder="new tag" hidden autocomplete="off"></div><div class="tpchips">${pickChips(tags)}</div></div>`;
+const tagPickHtml = (tags, fromNote = []) => `<div class="tagpick" data-tags="${esc(tags.join(' '))}"><div class="tpadd"><select name="tag" aria-label="add a tag">${tagAddOptions(tags)}</select><input name="newtag" placeholder="new tag" hidden autocomplete="off"></div><div class="tpchips">${pickChips(tags)}</div>${fromNote.length ? `<div class="tpnote">from the note: ${fromNote.map(g => `<span class="tchip" style="--h:${tagHue(g)}">${esc(g)}</span>`).join('')}</div>` : ''}</div>`;
 const pickedOf = box => (box.dataset.tags || '').split(' ').filter(Boolean);
 function renderPick(box, tags) { // redraw the chips and the add dropdown for a picker
   box.dataset.tags = tags.join(' '); box.querySelector('.tpchips').innerHTML = pickChips(tags);
@@ -496,22 +500,22 @@ function render() {
     const goalN = goal ? parseRepeat(t.repeat).n : 0, got = plus ? goalDone(t) : 0, met = plus && got >= goalN;
     return head + `<div class="item ${isOpen(t) ? '' : 'done'}${win ? ' win' : ''}${met ? ' met' : ''}${ed ? ' editing' : notesOpen.has(t.id) ? ' noting' : ''}" data-id="${t.id}">
       <div class="row">${plus ? `<button class="plus${met ? ' met' : ''}" data-a="log" aria-label="log a session">+1</button>` : win ? `<button class="tick" data-a="toggle" aria-label="undo done" title="undo">✓</button>` : `<input type="checkbox" data-a="toggle" ${t.status === 'done' ? 'checked' : ''}>`}
-        <span class="t" data-a="edit">${esc(splitTags(t.task).title || t.task)}${tagChips(splitTags(t.task).tags)}${t.status === 'doing' ? ' <small>(doing)</small>' : ''}</span>
+        <span class="t" data-a="edit">${esc(splitTags(t.task).title || t.task)}${tagChips(tagsOf(t))}${t.status === 'doing' ? ' <small>(doing)</small>' : ''}</span>
         ${!ed ? `<button class="nbtn${t.notes ? '' : ' empty'}${notesOpen.has(t.id) ? ' on' : ''}" data-a="note" aria-label="${t.notes ? 'show note' : 'add note'}">💬</button>` : ''}
         ${win ? '' : `<span class="due ${goal ? '' : over ? 'over' : tmrw ? 'tmrw' : soon ? 'soon' : ''}${isOpen(t) && !goal && !ed ? ' duebtn' + (dueOpen === t.id ? ' on' : '') : ''}"${isOpen(t) && !goal && !ed ? ' data-a="due" role="button" aria-label="change due date"' : ''}>${esc(showDate(t.due) || (isOpen(t) && !goal && !ed ? 'no date' : ''))}</span>`}
         ${t.status === 'done' && t.completed_at && !win ? `<span class="due">done ${esc(showDate(t.completed_at))}</span>` : ''}
         ${t.status === 'missed' ? '<span class="due">missed</span>' : ''}</div>
       ${t.repeat ? `<div class="rep"${plus ? ' data-a="hist"' : ''}>↻ ${esc(repeatLabel(t.repeat))}${plus ? (histOpen.has(t.series) ? ' ▴ history' : ' ▾ history') : t.series ? ' · ' + seriesStats(t.series) : ''}</div>${plus ? goalBox(t) : ''}${plus && histOpen.has(t.series) ? histHtml(t) : ''}` : ''}
-      ${!ed && notesOpen.has(t.id) ? `<textarea class="qnote" name="qnote" rows="3" placeholder="Add a note…">${esc(t.notes)}</textarea><button class="qdone" data-a="notedone">done</button>` : ''}
+      ${!ed && notesOpen.has(t.id) ? `<textarea class="qnote" name="qnote" rows="3" placeholder="Add a note…">${esc(t.notes)}</textarea><div class="tagsug" hidden></div><button class="qdone" data-a="notedone">done</button>` : ''}
       ${!ed && !goal && isOpen(t) && dueOpen === t.id ? quickDueHtml(t) : ''}
       ${ed ? `<div class="edit"><input name="task" value="${esc(splitTags(t.task).title || t.task)}"><div class="tagsug" hidden></div>
         <div class="two tagged"><input name="due" type="date" value="${esc(t.due)}">
         <select name="status">${STATUSES.map(s => `<option ${s === t.status ? 'selected' : ''}>${s}</option>`).join('')}</select>
-        ${tagPickHtml(splitTags(t.task).tags)}</div>
+        ${tagPickHtml(splitTags(t.task).tags, noteTags(t.notes).filter(g => !splitTags(t.task).tags.includes(g)))}</div>
         <div class="three"><select name="repeat">${REPEATS.map(r => `<option value="${r}" ${r === parseRepeat(t.repeat).unit || (!r && !t.repeat) ? 'selected' : ''}>${repeatOpt(r)}</option>`).join('')}</select>
         <input name="every" type="number" min="1" value="${parseRepeat(t.repeat).n}" title="Repeat every" aria-label="Repeat every"${t.repeat ? '' : ' disabled'}>
         <select name="repeat_from"><option value="due" ${t.repeat_from !== 'done' ? 'selected' : ''}>from due date</option><option value="done" ${t.repeat_from === 'done' ? 'selected' : ''}>from completion</option></select></div>
-        <textarea name="notes" rows="6" placeholder="Notes">${esc(t.notes)}</textarea>
+        <textarea name="notes" rows="6" placeholder="Notes">${esc(t.notes)}</textarea><div class="tagsug" hidden></div>
         <div class="btns"><button data-a="del">Delete</button><span>${t.repeat && !goal && isOpen(t) ? '<button data-a="skip">Skip</button> ' : ''}<button data-a="cancel">Cancel</button> <button class="primary" data-a="save">Save</button></span></div></div>` : ''}
     </div>`;
   }).join('') || (winsHead ? '' : `<p style="color:var(--mut)">${query ? 'No matches.' : 'Nothing here.'}</p>`));
@@ -541,7 +545,7 @@ document.addEventListener('change', e => {
 });
 // typing "#" in a task title suggests the existing tags (tap one to complete it), so one project keeps one spelling
 const TAG_AT_CARET = /(^|\s)#([\p{L}\p{N}_-]*)$/u;
-const sugBar = input => input.closest('form#add') ? $('#tagSug') : input.parentNode.querySelector('.tagsug');
+const sugBar = input => input.nextElementSibling?.classList.contains('tagsug') ? input.nextElementSibling : null; // the bar sits right after its field
 function tagSuggest(input) {
   const bar = sugBar(input); if (!bar) return;
   const pos = input.selectionStart ?? input.value.length, before = input.value.slice(0, pos), m = before.match(TAG_AT_CARET);
@@ -556,10 +560,10 @@ function applyTagSuggestion(input, tag) {
   const start = m.index + m[1].length, np = start + tag.length + 2;
   input.value = before.slice(0, start) + '#' + tag + ' ' + input.value.slice(pos).replace(/^\s+/, ''); input.setSelectionRange(np, np); tagSuggest(input);
 }
-document.addEventListener('input', e => { if (e.target.matches?.('input[name=task]')) tagSuggest(e.target); });
+document.addEventListener('input', e => { if (e.target.matches?.('input[name=task], textarea[name=notes], textarea[name=qnote]')) tagSuggest(e.target); });
 ['pointerdown', 'mousedown'].forEach(ev => document.addEventListener(ev, e => { // keep the keyboard open while picking a suggestion
   const chip = e.target.closest?.('.sugchip'); if (!chip) return; e.preventDefault();
-  if (ev === 'pointerdown') { const bar = chip.parentNode; applyTagSuggestion(bar.id === 'tagSug' ? addEl('task') : bar.parentNode.querySelector('[name=task]'), chip.dataset.tag); }
+  if (ev === 'pointerdown') { const bar = chip.parentNode; applyTagSuggestion(bar.previousElementSibling, chip.dataset.tag); }
 }));
 document.addEventListener('click', e => { if (e.target.classList?.contains('tpdel')) { const box = e.target.closest('.tagpick'); renderPick(box, pickedOf(box).filter(g => g !== e.target.dataset.tag)); } });
 document.addEventListener('focusout', e => { if (e.target.name === 'newtag' && !e.target.hidden) commitNewTag(e.target); });
@@ -573,7 +577,7 @@ addForm.addEventListener('submit', e => {
   e.preventDefault();
   const repeat = fmtRepeat(addEl('repeat').value, addEl('every').value), status = addEl('status').value;
   const goal = isGoal(repeat);
-  $('#tagSug').hidden = true; if (!addEl('newtag').hidden) commitNewTag(addEl('newtag'));
+  document.querySelectorAll('#add .tagsug').forEach(b => { b.hidden = true; }); if (!addEl('newtag').hidden) commitNewTag(addEl('newtag'));
   const t = { id: uuid(), task: composeNew(addEl('task').value, pickedOf(addPick())), status: 'todo', due: goal ? weekEnd(today()) : addEl('due').value, notes: addEl('notes').value, completed_at: '',
     repeat, repeat_from: repeat && !goal ? addEl('repeat_from').value : '', series: repeat ? uuid() : '', updated_at: new Date().toISOString() };
   if (goal) upsert(t); else if (repeat && status === 'done') advance(t, 'done', false); else { const row = withStatus(t, status); if (status === 'done' && filter === 'Wins' && winsDay) row.completed_at = winsDay; upsert(row); } // added while a past day is selected: done on that day
