@@ -130,7 +130,7 @@ const parseRepeat = r => { const [unit, n] = String(r || '').split('/'); return 
 const fmtRepeat = (unit, n) => !unit ? '' : (n = Math.max(1, parseInt(n, 10) || 1)) > 1 ? `${unit}/${n}` : unit;
 const isGoal = r => parseRepeat(r).unit === 'goal';
 const repeatLabel = r => { const { unit, n } = parseRepeat(r); if (unit === 'goal') return `${n}× a week`; return n > 1 ? `every ${n} ${UNITS[unit]}s` : unit; };
-const MAIN = ['Open', 'Today', 'doing', 'Wins'], MORE = ['missed', 'done', 'todo', 'Repeat', 'All']; // filter buttons: main row, and the ⋯ menu
+const MAIN = ['Open', 'Today', 'doing', 'done'], MORE = ['missed', 'todo', 'Repeat', 'All', 'Wins']; // filter buttons: main row, and the ⋯ menu
 const FLABEL = { Wins: '✓ today', Repeat: '↻' }; // button text where it differs from the filter name
 let moreOpen = false;
 const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
