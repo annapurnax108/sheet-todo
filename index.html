@@ -34,8 +34,8 @@ body, button, select, input, textarea { text-transform: lowercase; }
   .row { display:flex; align-items:center; gap:10px; }
   .row .t { flex:1; word-break:break-word; } .done .t { text-decoration:line-through; color:var(--mut); }
   .duebtn { cursor:pointer; text-decoration:underline dotted; text-underline-offset:3px; padding:4px 0; } .duebtn.on { text-decoration:underline; }
-  .qdue { display:flex; flex-wrap:wrap; gap:6px; margin:6px 0 0 30px; } .qdue button { font-size:13px; padding:6px 10px; } .qdue button.on { background:var(--acc); color:#fff; border-color:var(--acc); }
-  .qdate { font-size:16px; padding:3px 8px; min-width:0; flex:1 1 9em; }
+  .qdue { display:flex; flex-direction:column; align-items:stretch; gap:6px; width:9.5em; margin:6px 0 0 auto; } .qdue button { font-size:14px; padding:8px 10px; text-align:center; } .qdue button.on { background:var(--acc); color:#fff; border-color:var(--acc); }
+  .qdate { font-size:16px; padding:6px 8px; min-width:0; width:100%; }
   .due { font-size:13px; color:var(--mut); } .due.over { color:var(--bad); font-weight:600; } .due.soon { color:var(--soon); font-weight:600; } .due.tmrw { color:var(--tmrw); font-weight:600; }
   .rep { color:var(--mut); font-size:12px; margin:4px 0 0 30px; }
   .notes { color:var(--mut); font-size:14px; margin:6px 0 0 30px; white-space:pre-wrap; }
