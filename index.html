@@ -36,6 +36,8 @@ body, button, select, input, textarea { text-transform: lowercase; }
   .wweek { display:flex; overflow-x:auto; scroll-snap-type:x mandatory; scrollbar-width:none; margin-top:10px; } .wweek::-webkit-scrollbar { display:none; }
   .wpage { flex:0 0 100%; scroll-snap-align:start; display:grid; grid-template-columns:repeat(7,1fr); gap:4px; text-align:center; }
   .wday[data-a] { cursor:pointer; } .wday small { display:block; font-size:10px; opacity:.7; } .wday.sel { border-color:var(--fg); }
+  .wchip { position:relative; text-decoration:underline dotted; text-underline-offset:3px; cursor:pointer; }
+  .wdate { position:absolute; inset:0; width:100%; height:100%; opacity:0; font-size:16px; cursor:pointer; }
   .wback { font-size:13px; color:var(--acc); margin-top:8px; cursor:pointer; text-align:right; }
   .wday { border:1px solid var(--line); border-radius:8px; padding:4px 0; font-size:12px; color:var(--mut); } .wday b { display:block; font-size:16px; color:var(--fg); }
   .wday.today { border-color:var(--acc); background:var(--edit-bg); } .wday.today b { color:var(--acc); } .wday.future { opacity:.45; }
@@ -137,7 +139,7 @@ const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; 
 const save = (k, v) => localStorage.setItem(k, JSON.stringify(v));
 const norm = t => ({ repeat: '', repeat_from: '', series: '', ...t, status: String(t.status || 'todo').toLowerCase() }); // sheet may hold Done/done
 const isOpen = t => t.status !== 'done' && t.status !== 'missed';
-let cfg = load('cfg', {}), tasks = load('tasks', []).map(norm), queue = load('queue', []), filter = 'Today', query = '', editing = null, syncing = false, histOpen = new Set(), histAll = new Set(), notesOpen = new Set(), dueOpen = null, winsDay = null, winsScroll = null;
+let cfg = load('cfg', {}), tasks = load('tasks', []).map(norm), queue = load('queue', []), filter = 'Today', query = '', editing = null, syncing = false, histOpen = new Set(), histAll = new Set(), notesOpen = new Set(), dueOpen = null, winsDay = null, winsScroll = null, winsJump = false;
 
 const uuid = () => crypto.randomUUID ? crypto.randomUUID() : 'id-' + Date.now() + Math.random().toString(16).slice(2);
 const today = () => new Date().toLocaleDateString('en-CA');
@@ -317,7 +319,7 @@ function del(id) {
 // quick-note box is as tall as its text, so the whole note is visible
 const growNote = ta => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight + 2, innerHeight * 0.7) + 'px'; };
 // quick reschedule row under a task: one tap for the usual moves, a date picker for the rest
-const dueChoices = t => ({ today: today(), tomorrow: inDays(1), week: addPeriod(t.due && t.due > today() ? t.due : today(), 'daily', 7) });
+const dueChoices = t => ({ today: today(), tomorrow: addPeriod(today(), 'daily', 1), week: addPeriod(t.due && t.due > today() ? t.due : today(), 'daily', 7) });
 const quickDueHtml = t => {
   const c = dueChoices(t), b = (k, label) => `<button data-a="dueset" data-d="${k}" class="${t.due === c[k] ? 'on' : ''}">${label}</button>`;
   return `<div class="qdue">${b('today', 'today')}${b('tomorrow', 'tomorrow')}${b('week', '+1 week')}<input class="qdate" type="date" value="${esc(t.due)}" aria-label="pick a date"></div>`;
@@ -334,11 +336,14 @@ function winsHtml() {
   const notes = [n && best && n > best ? 'Best day in 4 weeks.' : isToday && n && y && n > y ? 'Ahead of yesterday.' : isToday && n && n === y ? 'Matching yesterday.' : '',
     n && streak > 1 ? `🔥 ${streak} days in a row` : isToday && !n && streak ? `Keep your ${streak}-day streak alive` : ''].filter(Boolean).join(' · ');
   const delta = n > y ? `<b class="up">▲ +${n - y}</b>` : n < y ? `<b>▼ −${y - n}</b>` : '<b>=</b>';
-  const label = isToday ? 'done today' : 'done · ' + new Date(day + 'T00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-  // the last 12 weeks, one Mon–Sun page each; scrolls sideways and opens on the current week
-  const thisMon = addPeriod(weekEnd(td), 'daily', -6);
-  const weeks = Array.from({ length: 12 }, (_, k) => {
-    const mon = addPeriod(thisMon, 'daily', -7 * (11 - k));
+  const thisMon = addPeriod(weekEnd(td), 'daily', -6), minDay = addPeriod(thisMon, 'daily', -7 * 259);
+  const dayText = isToday ? 'today' : new Date(day + 'T00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  // the date in the header is a button: a transparent date field sits over it so a tap opens the calendar
+  const label = `done <label class="wchip"><span>${dayText} ▾</span><input class="wdate" type="date" value="${day}" max="${td}" min="${minDay}" aria-label="go to a date"></label>`;
+  // the last 12 weeks (more if a picked date is older), one Mon–Sun page each; scrolls sideways and opens on the current week
+  const back = Math.round((new Date(thisMon + 'T00:00') - new Date(addPeriod(weekEnd(day), 'daily', -6) + 'T00:00')) / (7 * 864e5)), pages = Math.min(260, Math.max(12, back + 1));
+  const weeks = Array.from({ length: pages }, (_, k) => {
+    const mon = addPeriod(thisMon, 'daily', -7 * (pages - 1 - k));
     return `<div class="wpage">${Array.from({ length: 7 }, (_, i) => {
       const dd = addPeriod(mon, 'daily', i), c = cnt[dd] || 0, fut = dd > td;
       return `<div class="wday${dd === td ? ' today' : ''}${dd === day && !isToday ? ' sel' : ''}${fut ? ' future' : ''}"${fut ? '' : ` data-a="winday" data-day="${dd}"`}>${'MTWTFSS'[i]}<b>${fut ? '–' : c || '·'}</b><small>${+dd.slice(8)}</small></div>`;
@@ -391,7 +396,8 @@ function render() {
     </div>`;
   }).join('') || (winsHead ? '' : `<p style="color:var(--mut)">${query ? 'No matches.' : 'Nothing here.'}</p>`));
   document.querySelectorAll('.qnote').forEach(growNote);
-  const wk = document.querySelector('.wweek'); if (wk) { wk.scrollLeft = winsScroll ?? wk.scrollWidth; wk.onscroll = () => { winsScroll = wk.scrollLeft; }; } // strip: keep the page you were on
+  // strip: a picked day shows its week (today: the current week); otherwise keep the page you were on
+  const wk = document.querySelector('.wweek'); if (wk) { if (winsJump) { const sel = wk.querySelector('.sel'); wk.scrollLeft = sel ? sel.parentNode.getBoundingClientRect().left - wk.getBoundingClientRect().left + wk.scrollLeft : wk.scrollWidth; winsScroll = sel ? wk.scrollLeft : null; winsJump = false; } else wk.scrollLeft = winsScroll ?? wk.scrollWidth; wk.onscroll = () => { winsScroll = wk.scrollLeft; }; } // strip: keep the page you were on
   document.body.classList.toggle('typing', !!editing || !!document.querySelector('.qnote')); // extra room below while a note box is open
 }
 
@@ -419,6 +425,9 @@ addForm.addEventListener('submit', e => {
 const syncEvery = sel => { const n = sel.form ? sel.form.elements.every : sel.parentNode.querySelector('[name=every]'); n.disabled = !sel.value; (sel.form ? sel.form.elements.repeat_from : sel.parentNode.querySelector('[name=repeat_from]')).disabled = sel.value === 'goal'; };
 document.addEventListener('change', e => {
   if (e.target.name === 'repeat') syncEvery(e.target);
+  if (e.target.classList?.contains('wdate') && e.target.value) { // jump to a picked date in the done-today view
+    winsDay = e.target.value === today() ? null : e.target.value; winsJump = true; winsScroll = null; render();
+  }
   if (e.target.classList?.contains('qdate') && e.target.value) { // quick reschedule: picked a date
     const t = tasks.find(x => x.id === e.target.closest('.item')?.dataset.id); if (!t) return;
     dueOpen = null; upsert({ ...t, due: e.target.value });
@@ -471,6 +480,7 @@ $('#dlg').addEventListener('close', () => {
 });
 document.addEventListener('visibilitychange', () => { if (!document.hidden) setDueDefault(); if (!document.hidden && !editing && !typingNote()) sync(); });
 window.addEventListener('online', sync);
+$('#list').addEventListener('click', e => { if (e.target.classList?.contains('wdate')) try { e.target.showPicker(); } catch {} }); // desktop: open the calendar
 $('#list').addEventListener('input', e => { if (e.target.matches?.('.qnote')) growNote(e.target); });
 // quick note: saves and closes when you tap away; the list refresh waits a moment so a tap on another row is not lost
 let bubbleTap = { id: '', at: 0 };
