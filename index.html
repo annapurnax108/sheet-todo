@@ -22,8 +22,7 @@ body, button, select, input, textarea { text-transform: lowercase; }
   button { cursor:pointer; } button.primary { background:var(--acc); color:#fff; border-color:var(--acc); }
   #status { flex:1; min-width:0; text-align:center; color:var(--mut); font-size:12px; line-height:1.2; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
   textarea[name=notes] { min-height:7.5em; resize:vertical; scroll-margin-top:64px; }
-  form#add { display:grid; grid-template-columns:1fr auto auto; gap:8px; margin-bottom:12px; }
-  @media (max-width:520px) { form#add { grid-template-columns:minmax(0,1fr) minmax(0,1fr); } form#add input[name=task] { grid-column:1/-1; } }
+  form#add { display:grid; grid-template-columns:auto minmax(0,1fr); gap:8px; margin-bottom:12px; } form#add input[name=due] { min-width:9.5em; }
   #more { grid-column:1/-1; margin-top:0; } #more[hidden] { display:none; }
   #more .btns { display:grid; grid-template-columns:1fr 1fr; gap:8px; } #more .btns button { padding:12px; }
   #addClose { border:2px solid var(--bad); color:var(--bad); font-weight:600; }
@@ -43,6 +42,11 @@ body, button, select, input, textarea { text-transform: lowercase; }
   .tgoals { margin-top:10px; border-top:1px solid var(--line); padding-top:8px; } .tgoal { display:flex; align-items:center; gap:8px; font-size:13px; padding:2px 0; } .tgn { flex:none; max-width:35%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .tgoal .pips { flex:none; margin:0; gap:4px; } .tgoal .pip { width:12px; height:12px; } .tgs { margin-left:auto; color:var(--mut); text-align:right; } .need { color:var(--tmrw); font-weight:600; }
   .wday.heavy { background:var(--edit-bg); }
   .dayhead { display:flex; justify-content:space-between; font-size:13px; color:var(--mut); margin:12px 2px 4px; } .dayhead[data-a] { cursor:pointer; } .dayhead.over { color:var(--bad); }
+  .tagwrap { display:flex; min-width:0; } .tagwrap > * { min-width:0; width:100%; }
+  .tchip { display:inline-block; margin-left:6px; padding:0 7px; border-radius:999px; font-size:11px; line-height:18px; vertical-align:middle; white-space:nowrap; cursor:pointer; background:hsl(var(--h) 70% 90%); color:hsl(var(--h) 60% 28%); }
+  @media (prefers-color-scheme: dark) { .tchip { background:hsl(var(--h) 35% 26%); color:hsl(var(--h) 70% 82%); } }
+  .filters select#tagSel { flex:1.5 1 0; min-width:0; font-size:16px; padding:4px 6px; text-align:center; } .filters select#tagSel.on { background:var(--acc); color:#fff; border-color:var(--acc); }
+  .edit .two.tri { grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) minmax(0,1fr); }
   .wchip { position:relative; text-decoration:underline dotted; text-underline-offset:3px; cursor:pointer; }
   .wdate, .tdate { position:absolute; inset:0; width:100%; height:100%; opacity:0; font-size:16px; cursor:pointer; }
   .wback { font-size:13px; color:var(--acc); margin-top:8px; cursor:pointer; text-align:right; }
@@ -112,10 +116,10 @@ body, button, select, input, textarea { text-transform: lowercase; }
   <header><h1>To-Do</h1><div id="status"></div><button id="searchBtn" title="Search" aria-label="Search">🔍</button><button id="refresh" title="Sync now">⟳</button><button id="cfg" title="Settings">⚙</button></header>
   <div id="searchRow" hidden><input id="q" type="search" placeholder="search all tasks…" autocomplete="off"><button id="qx" aria-label="Close search">✕</button></div>
   <form id="add">
-    <input name="task" placeholder="New task…" required autocomplete="off">
     <input name="due" type="date" title="Due date">
-    <select name="status"></select>
+    <input name="task" placeholder="New task…" required autocomplete="off">
     <div id="more" class="edit" hidden>
+      <div class="two"><select name="status"></select><div class="tagwrap"><select name="tag" aria-label="tag"></select><input name="newtag" placeholder="new tag" hidden autocomplete="off"></div></div>
       <div class="three"><select name="repeat"></select><input name="every" type="number" min="1" value="1" title="Repeat every" aria-label="Repeat every" disabled><select name="repeat_from"></select></div>
       <textarea name="notes" rows="6" placeholder="Notes"></textarea>
       <div class="btns"><button type="button" id="addClose">✕ close</button><button class="primary">add</button></div>
@@ -145,12 +149,34 @@ const parseRepeat = r => { const [unit, n] = String(r || '').split('/'); return 
 const fmtRepeat = (unit, n) => !unit ? '' : (n = Math.max(1, parseInt(n, 10) || 1)) > 1 ? `${unit}/${n}` : unit;
 const isGoal = r => parseRepeat(r).unit === 'goal';
 const repeatLabel = r => { const { unit, n } = parseRepeat(r); if (unit === 'goal') return `${n}× a week`; return n > 1 ? `every ${n} ${UNITS[unit]}s` : unit; };
-const MAIN = ['Open', 'Today', 'doing', 'Wins'], MORE = ['missed', 'done', 'todo', 'Repeat', 'All']; // filter buttons: main row, and the ⋯ menu
+const MAIN = ['Today', 'Wins', 'doing'], MORE = ['Open', 'missed', 'done', 'todo', 'Repeat', 'All']; // filter buttons: main row, and the ⋯ menu
 const FLABEL = { Wins: '✓ today', Repeat: '↻' }; // button text where it differs from the filter name
 let moreOpen = false;
 const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
 const save = (k, v) => localStorage.setItem(k, JSON.stringify(v));
 const norm = t => ({ repeat: '', repeat_from: '', series: '', ...t, status: String(t.status || 'todo').toLowerCase() }); // sheet may hold Done/done
+// project tags live in the task text as #hashtags (no sheet change): "email vendor #acme"
+const TAG_RE = /(^|\s)#([\p{L}\p{N}_-]+)/gu;
+const normTag = s => String(s || '').replace(/^#+/, '').trim().toLowerCase().replace(/\s+/g, '-').replace(/[^\p{L}\p{N}_-]/gu, '');
+function splitTags(text) { const tags = []; const title = String(text || '').replace(TAG_RE, (m, sp, tag) => { tag = tag.toLowerCase(); if (!tags.includes(tag)) tags.push(tag); return sp ? ' ' : ''; }).replace(/\s{2,}/g, ' ').trim(); return { title, tags }; }
+const joinTags = (title, tags) => [title, ...tags.map(g => '#' + g)].join(' ').trim();
+const tagsOf = t => splitTags(t.task).tags;
+// text for a new task: the dropdown's tag goes first, any #tags typed in the box are kept
+const composeNew = (typed, pick) => { const sp = splitTags(typed); return joinTags(sp.title, pick ? [pick, ...sp.tags.filter(g => g !== pick)] : sp.tags); };
+// text after editing: the dropdown replaces the first tag, extra tags stay, tags typed into the title are added
+const composeEdit = (typed, orig, pick) => {
+  const ty = splitTags(typed), or = splitTags(orig), rest = or.tags.slice(1);
+  return joinTags(ty.title || or.title, [...(pick ? [pick] : []), ...rest.filter(g => g !== pick), ...ty.tags.filter(g => g !== pick && !rest.includes(g))]);
+};
+let tagFilter = '';
+const matchesTag = t => !tagFilter || tagsOf(t).includes(tagFilter);
+// existing tags with how many real tasks use them, most used first (weekly-goal session/missed rows are not counted)
+const allTags = () => { const c = {}; tasks.forEach(t => { if (!isGoal(t.repeat) || isOpen(t)) tagsOf(t).forEach(g => { c[g] = (c[g] || 0) + 1; }); }); return Object.entries(c).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])); };
+const tagHue = g => { let h = 0; for (const ch of g) h = (h * 31 + ch.codePointAt(0)) % 360; return h; };
+const tagChips = tags => tags.map(g => `<span class="tchip" data-a="tagpick" data-tag="${esc(g)}" style="--h:${tagHue(g)}">${esc(g)}</span>`).join('');
+const tagOptions = (cur, withCounts = true) => { const list = allTags(); return '<option value="">no tag</option>' + list.map(([g, n]) => `<option value="${esc(g)}"${g === cur ? ' selected' : ''}>${esc(g)}${withCounts ? ` (${n})` : ''}</option>`).join('')
+  + (cur && !list.some(([g]) => g === cur) ? `<option value="${esc(cur)}" selected>${esc(cur)}</option>` : '') + '<option value="__new">+ new tag…</option>'; };
+
 const isOpen = t => t.status !== 'done' && t.status !== 'missed';
 let cfg = load('cfg', {}), tasks = load('tasks', []).map(norm), queue = load('queue', []), filter = 'Today', query = '', editing = null, syncing = false, histOpen = new Set(), histAll = new Set(), notesOpen = new Set(), dueOpen = null, winsDay = null, winsScroll = null, winsJump = false, todayDay = null, todayWeek = false, todayScroll = null, todayJump = false;
 
@@ -339,8 +365,9 @@ const quickDueHtml = t => {
 };
 // "done today" view: count, cheer, yesterday, streak, the week at a glance, and weekly-goal sessions grouped per goal
 function winsHtml() {
+  const pool = tasks.filter(matchesTag); // counts follow the tag filter
   const td = today(), day = winsDay || td, isToday = day === td, prev = addPeriod(day, 'daily', -1), cnt = {};
-  tasks.forEach(t => { if (t.status === 'done' && t.completed_at) cnt[t.completed_at] = (cnt[t.completed_at] || 0) + 1; });
+  pool.forEach(t => { if (t.status === 'done' && t.completed_at) cnt[t.completed_at] = (cnt[t.completed_at] || 0) + 1; });
   const n = cnt[day] || 0, y = cnt[prev] || 0;
   let streak = 0, d = n ? day : prev;
   for (; cnt[d] && streak < 400; streak++) d = addPeriod(d, 'daily', -1);
@@ -363,7 +390,7 @@ function winsHtml() {
     }).join('')}</div>`;
   }).join('');
   const groups = {};
-  tasks.filter(t => t.status === 'done' && t.completed_at === day && isGoal(t.repeat)).forEach(t => (groups[t.series] = groups[t.series] || []).push(t));
+  pool.filter(t => t.status === 'done' && t.completed_at === day && isGoal(t.repeat)).forEach(t => (groups[t.series] = groups[t.series] || []).push(t));
   const goals = Object.entries(groups).map(([series, rows]) => {
     const N = parseRepeat(rows[0].repeat).n, got = tasks.filter(x => x.series === series && x.status === 'done' && x.completed_at && weekEnd(x.completed_at) === weekEnd(day)).length;
     return `<div class="item wingoal${got >= N ? ' met' : ''}"><div class="row"><span class="t">✓ ${esc(rows[0].task)} ×${rows.length}</span><span class="due">${got} of ${N} ${isToday ? 'this' : 'that'} week${got >= N ? ' ✓' : ''}</span></div></div>`;
@@ -394,16 +421,17 @@ const goalState = g => {
   return { g, n, got, left, daysLeft, loggedToday, needed: left > 0 && !loggedToday && left >= daysLeft };
 };
 function todayHtml() {
+  const pool = tasks.filter(matchesTag); // counts follow the tag filter
   const td = today(), day = todayDay || td, isToday = !todayDay, pg = dayPage(day), cur = pg === 0, cnt = {};
-  const open = tasks.filter(t => isOpen(t) && !isGoal(t.repeat) && t.due);
+  const open = pool.filter(t => isOpen(t) && !isGoal(t.repeat) && t.due);
   open.forEach(t => { cnt[t.due] = (cnt[t.due] || 0) + 1; });
   const overdue = open.filter(t => t.due < td).length, dueNow = open.filter(t => t.due <= td).length;
-  const goals = tasks.filter(t => isOpen(t) && isGoal(t.repeat) && t.due >= td).map(goalState), needed = goals.filter(x => x.needed);
-  const doneDated = tasks.filter(t => t.status === 'done' && t.completed_at === td && !isGoal(t.repeat)).length, doneGoals = goals.filter(x => x.loggedToday).length, doneToday = doneDated + doneGoals;
-  const goalDays = new Set(tasks.filter(t => t.status === 'done' && isGoal(t.repeat) && t.completed_at).map(t => t.completed_at));
+  const goals = pool.filter(t => isOpen(t) && isGoal(t.repeat) && t.due >= td).map(goalState), needed = goals.filter(x => x.needed);
+  const doneDated = pool.filter(t => t.status === 'done' && t.completed_at === td && !isGoal(t.repeat)).length, doneGoals = goals.filter(x => x.loggedToday).length, doneToday = doneDated + doneGoals;
+  const goalDays = new Set(pool.filter(t => t.status === 'done' && isGoal(t.repeat) && t.completed_at).map(t => t.completed_at));
   cnt[td] = dueNow; // today's cell is today's list: due today plus anything overdue
   // today's number = dated tasks due (plus overdue) and weekly goals that can no longer skip today; optional sessions are shown apart
-  const n = todayWeek ? tasks.filter(t => todayPick(t) && !isGoal(t.repeat)).length : isToday ? dueNow + needed.length : cnt[day] || 0;
+  const n = todayWeek ? pool.filter(t => todayPick(t) && !isGoal(t.repeat)).length : isToday ? dueNow + needed.length : cnt[day] || 0;
   const next = Object.keys(cnt).filter(d => d > td && cnt[d]).sort()[0];
   const coach = !isToday || todayWeek ? (n ? `${n} task${n === 1 ? '' : 's'} planned.` : 'Nothing planned.')
     : !n ? (doneToday ? 'All clear for today 🎉' : 'Nothing due today.') + (next ? ` Next: ${dayLabel(next)} (${cnt[next]}).` : '')
@@ -429,9 +457,11 @@ function todayHtml() {
 }
 function render() {
   const fbtn = f => `<button data-f="${f}" class="${f === filter ? 'on' : ''}"${f === 'Repeat' ? ' title="repeating" aria-label="repeating"' : ''}>${FLABEL[f] || f}</button>`;
-  $('#filters').innerHTML = `<div class="frow">${MAIN.map(fbtn).join('')}<button data-more aria-label="more filters" class="${MORE.includes(filter) ? 'on' : ''}">${MORE.includes(filter) ? FLABEL[filter] || filter : '⋯'}</button></div>`
+  if (tagFilter && !allTags().some(([g]) => g === tagFilter)) tagFilter = '';
+  const tagSel = allTags().length ? `<select id="tagSel" class="${tagFilter ? 'on' : ''}" aria-label="filter by tag"><option value="">all tags</option>${allTags().map(([g, n]) => `<option value="${esc(g)}"${g === tagFilter ? ' selected' : ''}>${esc(g)} (${n})</option>`).join('')}</select>` : '';
+  $('#filters').innerHTML = `<div class="frow">${MAIN.map(fbtn).join('')}${tagSel}<button data-more aria-label="more filters" class="${MORE.includes(filter) ? 'on' : ''}">${MORE.includes(filter) ? FLABEL[filter] || filter : '⋯'}</button></div>`
     + (moreOpen ? `<div class="frow">${MORE.map(fbtn).join('')}</div>` : '');
-  const shown = tasks.filter(t => query ? ((t.task || '') + ' ' + (t.notes || '')).toLowerCase().includes(query) : filter === 'Wins' ? t.status === 'done' && t.completed_at === (winsDay || today()) && !isGoal(t.repeat) : filter === 'All' ? true : filter === 'Open' ? isOpen(t) : filter === 'Today' ? todayPick(t) : filter === 'Repeat' ? isOpen(t) && t.repeat : t.status === filter)
+  const shown = tasks.filter(t => matchesTag(t) && (query ? ((t.task || '') + ' ' + (t.notes || '')).toLowerCase().includes(query) : filter === 'Wins' ? t.status === 'done' && t.completed_at === (winsDay || today()) && !isGoal(t.repeat) : filter === 'All' ? true : filter === 'Open' ? isOpen(t) : filter === 'Today' ? todayPick(t) : filter === 'Repeat' ? isOpen(t) && t.repeat : t.status === filter))
     .sort((a, b) => !isOpen(a) - !isOpen(b)
       || (filter === 'Today' && todayWeek && isOpen(a) ? todayGroup(a).localeCompare(todayGroup(b)) : 0)
       || (filter === 'Today' && isOpen(a) ? !!a.repeat - !!b.repeat || isGoal(a.repeat) - isGoal(b.repeat) : 0) // Today: repeating tasks sink to the bottom, weekly goals last
@@ -450,7 +480,7 @@ function render() {
     const goalN = goal ? parseRepeat(t.repeat).n : 0, got = plus ? goalDone(t) : 0, met = plus && got >= goalN;
     return head + `<div class="item ${isOpen(t) ? '' : 'done'}${win ? ' win' : ''}${met ? ' met' : ''}${ed ? ' editing' : notesOpen.has(t.id) ? ' noting' : ''}" data-id="${t.id}">
       <div class="row">${plus ? `<button class="plus${met ? ' met' : ''}" data-a="log" aria-label="log a session">+1</button>` : win ? `<button class="tick" data-a="toggle" aria-label="undo done" title="undo">✓</button>` : `<input type="checkbox" data-a="toggle" ${t.status === 'done' ? 'checked' : ''}>`}
-        <span class="t" data-a="edit">${esc(t.task)}${t.status === 'doing' ? ' <small>(doing)</small>' : ''}</span>
+        <span class="t" data-a="edit">${esc(splitTags(t.task).title || t.task)}${tagChips(splitTags(t.task).tags)}${t.status === 'doing' ? ' <small>(doing)</small>' : ''}</span>
         ${!ed ? `<button class="nbtn${t.notes ? '' : ' empty'}${notesOpen.has(t.id) ? ' on' : ''}" data-a="note" aria-label="${t.notes ? 'show note' : 'add note'}">💬</button>` : ''}
         ${win ? '' : `<span class="due ${goal ? '' : over ? 'over' : tmrw ? 'tmrw' : soon ? 'soon' : ''}${isOpen(t) && !goal && !ed ? ' duebtn' + (dueOpen === t.id ? ' on' : '') : ''}"${isOpen(t) && !goal && !ed ? ' data-a="due" role="button" aria-label="change due date"' : ''}>${esc(showDate(t.due) || (isOpen(t) && !goal && !ed ? 'no date' : ''))}</span>`}
         ${t.status === 'done' && t.completed_at && !win ? `<span class="due">done ${esc(showDate(t.completed_at))}</span>` : ''}
@@ -458,9 +488,10 @@ function render() {
       ${t.repeat ? `<div class="rep"${plus ? ' data-a="hist"' : ''}>↻ ${esc(repeatLabel(t.repeat))}${plus ? (histOpen.has(t.series) ? ' ▴ history' : ' ▾ history') : t.series ? ' · ' + seriesStats(t.series) : ''}</div>${plus ? goalBox(t) : ''}${plus && histOpen.has(t.series) ? histHtml(t) : ''}` : ''}
       ${!ed && notesOpen.has(t.id) ? `<textarea class="qnote" name="qnote" rows="3" placeholder="Add a note…">${esc(t.notes)}</textarea><button class="qdone" data-a="notedone">done</button>` : ''}
       ${!ed && !goal && isOpen(t) && dueOpen === t.id ? quickDueHtml(t) : ''}
-      ${ed ? `<div class="edit"><input name="task" value="${esc(t.task)}">
-        <div class="two"><input name="due" type="date" value="${esc(t.due)}">
-        <select name="status">${STATUSES.map(s => `<option ${s === t.status ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
+      ${ed ? `<div class="edit"><input name="task" value="${esc(splitTags(t.task).title || t.task)}">
+        <div class="two tri"><input name="due" type="date" value="${esc(t.due)}">
+        <select name="status">${STATUSES.map(s => `<option ${s === t.status ? 'selected' : ''}>${s}</option>`).join('')}</select>
+        <div class="tagwrap"><select name="tag" aria-label="tag">${tagOptions(splitTags(t.task).tags[0] || '')}</select><input name="newtag" placeholder="new tag" hidden autocomplete="off"></div></div>
         <div class="three"><select name="repeat">${REPEATS.map(r => `<option value="${r}" ${r === parseRepeat(t.repeat).unit || (!r && !t.repeat) ? 'selected' : ''}>${repeatOpt(r)}</option>`).join('')}</select>
         <input name="every" type="number" min="1" value="${parseRepeat(t.repeat).n}" title="Repeat every" aria-label="Repeat every"${t.repeat ? '' : ' disabled'}>
         <select name="repeat_from"><option value="due" ${t.repeat_from !== 'done' ? 'selected' : ''}>from due date</option><option value="done" ${t.repeat_from === 'done' ? 'selected' : ''}>from completion</option></select></div>
@@ -474,6 +505,7 @@ function render() {
   if (tk) { if (todayJump) { const sel = tk.querySelector('.sel'); tk.scrollLeft = sel ? sel.parentNode.getBoundingClientRect().left - tk.getBoundingClientRect().left + tk.scrollLeft : 0; todayScroll = sel ? tk.scrollLeft : null; todayJump = false; } else tk.scrollLeft = todayScroll ?? 0; tk.onscroll = () => { todayScroll = tk.scrollLeft; }; }
   const wk = document.querySelector('.wweek:not(.tweek)'); if (wk) { if (winsJump) { const sel = wk.querySelector('.sel'); wk.scrollLeft = sel ? sel.parentNode.getBoundingClientRect().left - wk.getBoundingClientRect().left + wk.scrollLeft : wk.scrollWidth; winsScroll = sel ? wk.scrollLeft : null; winsJump = false; } else wk.scrollLeft = winsScroll ?? wk.scrollWidth; wk.onscroll = () => { winsScroll = wk.scrollLeft; }; } // strip: keep the page you were on
   document.body.classList.toggle('typing', !!editing || !!document.querySelector('.qnote')); // extra room below while a note box is open
+  if (addEl('newtag').hidden) fillAddTags(addEl('tag').value); // keep the add form's tag list current (unless a new tag is being typed)
 }
 
 // the add form's extra fields (status, repeat, notes) open when the task box is tapped
@@ -481,7 +513,14 @@ const addForm = $('#add'), addEl = n => addForm.elements[n];
 addEl('status').innerHTML = ['todo', 'doing', 'done'].map(s => `<option>${s}</option>`).join('');
 addEl('repeat').innerHTML = REPEATS.map(r => `<option value="${r}">${repeatOpt(r)}</option>`).join('');
 addEl('repeat_from').innerHTML = '<option value="due">from due date</option><option value="done">from completion</option>';
-const setStatusDefault = () => addEl('status').value = filter === 'doing' || filter === 'done' ? filter : filter === 'Wins' ? 'done' : 'todo'; // a task added in these filters starts in that stage
+const setStatusDefault = () => { addEl('status').value = filter === 'doing' || filter === 'done' ? filter : filter === 'Wins' ? 'done' : 'todo'; /* a task added in these filters starts in that stage */ fillAddTags(tagFilter); };
+// the add form's tag dropdown lists the existing tags (so one project doesn't end up with two spellings); "+ new tag…" swaps in a text box
+const fillAddTags = cur => { const sel = addEl('tag'); cur = cur ?? sel.value; sel.innerHTML = tagOptions(cur === '__new' ? '' : cur); sel.value = cur === '__new' ? '' : cur; showTagBox(sel, false); };
+const showTagBox = (sel, on) => { const box = sel.parentNode.querySelector('[name=newtag]'); sel.hidden = on; box.hidden = !on; if (on) { box.value = ''; box.focus(); } };
+const commitNewTag = box => { const sel = box.parentNode.querySelector('[name=tag]'), tag = normTag(box.value); if (tag && ![...sel.options].some(o => o.value === tag)) sel.add(new Option(tag, tag), sel.options[sel.options.length - 1]); sel.value = tag; box.hidden = true; sel.hidden = false; };
+document.addEventListener('change', e => { if (e.target.name === 'tag' && e.target.value === '__new') showTagBox(e.target, true); if (e.target.id === 'tagSel') { tagFilter = e.target.value; render(); fillAddTags(tagFilter); } });
+document.addEventListener('focusout', e => { if (e.target.name === 'newtag' && !e.target.hidden) commitNewTag(e.target); });
+document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.name === 'newtag') { e.preventDefault(); commitNewTag(e.target); } });
 let skipOpen = false;
 const focusTask = () => { skipOpen = true; addEl('task').focus(); skipOpen = false; };
 ['focus', 'click'].forEach(ev => addEl('task').addEventListener(ev, () => { if (!skipOpen) $('#more').hidden = false; }));
@@ -491,7 +530,8 @@ addForm.addEventListener('submit', e => {
   e.preventDefault();
   const repeat = fmtRepeat(addEl('repeat').value, addEl('every').value), status = addEl('status').value;
   const goal = isGoal(repeat);
-  const t = { id: uuid(), task: addEl('task').value.trim(), status: 'todo', due: goal ? weekEnd(today()) : addEl('due').value, notes: addEl('notes').value, completed_at: '',
+  const pick = addEl('tag').value;
+  const t = { id: uuid(), task: composeNew(addEl('task').value, pick === '__new' ? '' : pick), status: 'todo', due: goal ? weekEnd(today()) : addEl('due').value, notes: addEl('notes').value, completed_at: '',
     repeat, repeat_from: repeat && !goal ? addEl('repeat_from').value : '', series: repeat ? uuid() : '', updated_at: new Date().toISOString() };
   if (goal) upsert(t); else if (repeat && status === 'done') advance(t, 'done', false); else { const row = withStatus(t, status); if (status === 'done' && filter === 'Wins' && winsDay) row.completed_at = winsDay; upsert(row); } // added while a past day is selected: done on that day
   addForm.reset(); setDueDefault(); setStatusDefault(); $('#more').hidden = true; focusTask();
@@ -530,6 +570,7 @@ $('#list').addEventListener('click', e => {
   else if (a === 'notedone') { document.activeElement?.blur?.(); notesOpen.delete(t.id); render(); }
   else if (a === 'due') { dueOpen = dueOpen === t.id ? null : t.id; render(); if (dueOpen) revealRow(t.id); }
   else if (a === 'dueset') { const d = dueChoices(t)[e.target.closest('[data-d]').dataset.d]; dueOpen = null; upsert({ ...t, due: d }); }
+  else if (a === 'tagpick') { const g = e.target.closest('[data-tag]').dataset.tag; tagFilter = tagFilter === g ? '' : g; render(); fillAddTags(tagFilter); }
   else if (a === 'note') { dueOpen = null; const open = !notesOpen.has(t.id); open ? notesOpen.add(t.id) : notesOpen.delete(t.id); render(); if (open) liftNote(t.id, !t.notes); }
   else if (a === 'histall') { histAll.has(t.series) ? histAll.delete(t.series) : histAll.add(t.series); render(); }
   else if (a === 'hist') { histOpen.has(t.series) ? histOpen.delete(t.series) : histOpen.add(t.series); render(); }
@@ -541,7 +582,8 @@ $('#list').addEventListener('click', e => {
   else if (a === 'save') {
     const q = n => item.querySelector(`[name=${n}]`).value; editing = null;
     const repeat = fmtRepeat(q('repeat'), q('every')), status = q('status');
-    const edited = { ...t, task: q('task').trim() || t.task, due: isGoal(repeat) && !isGoal(t.repeat) ? weekEnd(today()) : q('due'), notes: q('notes'), repeat, repeat_from: repeat && !isGoal(repeat) ? q('repeat_from') : '', series: repeat ? t.series || uuid() : t.series };
+    const nb = item.querySelector('[name=newtag]'), pickT = normTag(nb && !nb.hidden ? nb.value : q('tag') === '__new' ? '' : q('tag'));
+    const edited = { ...t, task: composeEdit(q('task'), t.task, pickT) || t.task, due: isGoal(repeat) && !isGoal(t.repeat) ? weekEnd(today()) : q('due'), notes: q('notes'), repeat, repeat_from: repeat && !isGoal(repeat) ? q('repeat_from') : '', series: repeat ? t.series || uuid() : t.series };
     if (repeat && !isGoal(repeat) && isOpen(t) && !isOpen({ status })) advance(edited, status); else upsert(withStatus(edited, status));
   }
 });
