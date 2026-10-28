@@ -64,6 +64,7 @@ body, button, select, input, textarea { text-transform: lowercase; }
   .goalbox.met .gcount { color:var(--good); } .coach { font-size:13px; margin-top:4px; color:var(--mut); } .coach.tight { color:var(--tmrw); font-weight:600; } .coach.late { color:var(--bad); font-weight:600; }
   .gextra { font-size:12px; color:var(--mut); margin-top:2px; }
   .hist { margin:4px 0 0 30px; font-size:12px; color:var(--mut); font-variant-numeric:tabular-nums; }
+  .hnote { font-size:13px; color:var(--mut); white-space:pre-wrap; margin:0 0 6px 4px; }
   .hw { display:grid; grid-template-columns:5.5em 1fr 3.5em 4.5em; gap:6px; padding:2px 0; align-items:center; } .hw .dots { letter-spacing:1px; overflow:hidden; white-space:nowrap; }
   .hw.ok { color:var(--good); } .hw.short span:last-child { color:var(--bad); font-weight:600; } .hsum { margin-top:4px; } .hmore { cursor:pointer; color:var(--acc); padding:2px 0; }
   .nbtn { border:1px solid transparent; background:none; padding:2px 6px; font-size:15px; line-height:1; opacity:.7; min-width:32px; min-height:32px; }
@@ -165,7 +166,8 @@ function goalHistory(series, openEnd) {
   const weeks = {};
   tasks.filter(x => x.series === series && (x.status === 'done' ? x.completed_at : x.status === 'missed')).forEach(x => {
     const end = weekEnd(x.status === 'done' ? x.completed_at : x.due); if (end >= openEnd) return;
-    const w = weeks[end] = weeks[end] || { end, done: 0, target: 0 };
+    const w = weeks[end] = weeks[end] || { end, done: 0, target: 0, note: '' };
+    if (x.notes && !w.note.split('\n').includes(x.notes)) w.note += (w.note ? '\n' : '') + x.notes; // the week's archived note
     if (x.status === 'done') w.done++;
     if (!w.target || x.status === 'missed') w.target = parseRepeat(x.repeat).n;
   });
@@ -209,9 +211,19 @@ function histHtml(t) {
     const range = shortDay(start) + '–' + (start.slice(5, 7) === w.end.slice(5, 7) ? w.end.slice(8).replace(/^0/, '') : shortDay(w.end));
     const hit = Math.min(w.done, w.target), extra = w.done - hit;
     const dots = '●'.repeat(Math.min(hit, 10)) + '○'.repeat(Math.max(0, Math.min(w.target, 10) - hit)) + (extra ? `<span class="hbonus">${'★'.repeat(Math.min(extra, 6))}</span>` : '');
-    return `<div class="hw ${ok ? 'ok' : 'short'}"><span>${esc(range)}</span><span class="dots">${dots}</span><span>${hit} of ${w.target}</span><span>${ok ? '✓ met' + (extra ? ` <b class="hbonus">+${extra}</b>` : '') : 'short ' + (w.target - w.done)}</span></div>`;
+    return (`<div class="hw ${ok ? 'ok' : 'short'}"><span>${esc(range)}</span><span class="dots">${dots}</span><span>${hit} of ${w.target}</span><span>${ok ? '✓ met' + (extra ? ` <b class="hbonus">+${extra}</b>` : '') : 'short ' + (w.target - w.done)}</span></div>`) + (w.note ? `<div class="hnote">💬 ${esc(w.note)}</div>` : '');
   }).join('');
   return `<div class="hist">${rows}${ws.length > 12 ? `<div class="hmore" data-a="histall">${all ? (ws.length > 52 ? `${ws.length - 52} older weeks not shown · ` : '') + 'show less ▴' : `+${ws.length - 12} earlier weeks · show all ▾`}</div>` : ''}<div class="hsum">${ws.filter(w => w.done >= w.target).length} of ${ws.length} weeks met · best streak ${best}</div></div>`;
+}
+// removing a session row keeps any archived week note by moving it onto another row of that week
+function delSession(t) {
+  if (t.notes) {
+    const end = weekEnd(t.status === 'done' ? t.completed_at : t.due);
+    const rest = tasks.filter(x => x.id !== t.id && x.series === t.series && (x.status === 'done' ? x.completed_at && weekEnd(x.completed_at) === end : x.status === 'missed' && weekEnd(x.due) === end))
+      .sort((a, b) => (a.status === 'done' ? 0 : 1) - (b.status === 'done' ? 0 : 1) || (a.completed_at || a.due).localeCompare(b.completed_at || b.due));
+    if (rest[0]) upsert({ ...rest[0], notes: rest[0].notes ? rest[0].notes + '\n' + t.notes : t.notes, updated_at: new Date().toISOString() });
+  }
+  del(t.id);
 }
 function logSession(t) {
   settleGoals(); t = tasks.find(x => x.id === t.id) || t; // roll a finished week over first
@@ -225,10 +237,13 @@ function settleGoals() {
     const n = parseRepeat(t.repeat).n, now = new Date().toISOString();
     let due = t.due, k = 0;
     for (; due < today() && k < 520; k++, due = addPeriod(due, 'weekly', 1)) {
-      const short = n - goalDone({ ...t, due });
-      for (let i = 0; i < short; i++) upsert({ id: `${t.series}:${due}:${i}`, task: t.task, status: 'missed', due, notes: '', completed_at: '', repeat: t.repeat, repeat_from: '', series: t.series, updated_at: now });
+      const short = n - goalDone({ ...t, due }), week = tasks.filter(x => x.series === t.series && x.status === 'done' && x.completed_at > addPeriod(due, 'daily', -7) && x.completed_at <= due)
+        .sort((a, b) => a.completed_at.localeCompare(b.completed_at) || a.id.localeCompare(b.id));
+      let note = k === 0 ? t.notes : ''; // the note written during the finished week moves onto that week's history
+      if (note && week.length) { upsert({ ...week[0], notes: week[0].notes ? week[0].notes + '\n' + note : note, updated_at: now }); note = ''; }
+      for (let i = 0; i < short; i++) upsert({ id: `${t.series}:${due}:${i}`, task: t.task, status: 'missed', due, notes: i === 0 ? note : '', completed_at: '', repeat: t.repeat, repeat_from: '', series: t.series, updated_at: now });
     }
-    upsert({ ...t, due, updated_at: now });
+    upsert({ ...t, due, notes: '', updated_at: now }); // new week starts with an empty note
   });
 }
 // a task counted from its due date that is closed late also records every occurrence that fell due before the one being closed as missed
@@ -416,7 +431,7 @@ $('#list').addEventListener('click', e => {
   else if (a === 'note') { dueOpen = null; const open = !notesOpen.has(t.id); open ? notesOpen.add(t.id) : notesOpen.delete(t.id); render(); if (open) liftNote(t.id, !t.notes); }
   else if (a === 'histall') { histAll.has(t.series) ? histAll.delete(t.series) : histAll.add(t.series); render(); }
   else if (a === 'hist') { histOpen.has(t.series) ? histOpen.delete(t.series) : histOpen.add(t.series); render(); }
-  else if (a === 'toggle') { if (isGoal(t.repeat)) del(t.id); else if (t.status === 'done') reopen(t); else if (t.repeat) advance(t, 'done'); else upsert(withStatus(t, 'done')); }
+  else if (a === 'toggle') { if (isGoal(t.repeat)) delSession(t); else if (t.status === 'done') reopen(t); else if (t.repeat) advance(t, 'done'); else upsert(withStatus(t, 'done')); }
   else if (a === 'skip') { editing = null; advance(t, 'missed'); }
   else if (a === 'edit') { dueOpen = null; editing = editing === t.id ? null : t.id; notesOpen.delete(t.id); render(); liftEdit(); if (editing) [60, 300].forEach(ms => setTimeout(() => editing === t.id && liftEdit(), ms)); }
   else if (a === 'cancel') { editing = null; render(); }
