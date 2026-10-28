@@ -22,7 +22,12 @@ body, button, select, input, textarea { text-transform: lowercase; }
   button { cursor:pointer; } button.primary { background:var(--acc); color:#fff; border-color:var(--acc); }
   #status { flex:1; min-width:0; text-align:center; color:var(--mut); font-size:12px; line-height:1.2; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
   textarea[name=notes] { min-height:7.5em; resize:vertical; scroll-margin-top:64px; }
-  form#add { display:grid; grid-template-columns:auto minmax(0,1fr); gap:8px; margin-bottom:12px; } form#add input[name=due] { min-width:9.5em; }
+  form#add { display:grid; grid-template-columns:auto minmax(0,1fr); gap:8px; margin-bottom:12px; } form#add input[name=due] { min-width:9.5em; } form#add > select[name=status] { display:none; }
+  /* tapping the task box opens the card, laid out like an existing task's edit card: title, then date + status, then tag, repeat, notes */
+  form#add:has(#more:not([hidden])) { grid-template-columns:minmax(0,1fr) minmax(0,1fr); }
+  form#add:has(#more:not([hidden])) input[name=task] { order:1; grid-column:1/-1; } form#add:has(#more:not([hidden])) #tagSug { order:2; }
+  form#add:has(#more:not([hidden])) input[name=due] { order:3; min-width:0; width:100%; } form#add:has(#more:not([hidden])) > select[name=status] { display:block; order:4; min-width:0; width:100%; }
+  form#add:has(#more:not([hidden])) #more { order:5; }
   #more { grid-column:1/-1; margin-top:0; } #more[hidden] { display:none; }
   #more .btns { display:grid; grid-template-columns:1fr 1fr; gap:8px; } #more .btns button { padding:12px; }
   #addClose { border:2px solid var(--bad); color:var(--bad); font-weight:600; }
@@ -120,8 +125,9 @@ body, button, select, input, textarea { text-transform: lowercase; }
     <input name="due" type="date" title="Due date">
     <input name="task" placeholder="New task…" required autocomplete="off">
     <div id="tagSug" class="tagsug" hidden></div>
+    <select name="status"></select>
     <div id="more" class="edit" hidden>
-      <div class="two"><select name="status"></select><div class="tagpick" data-tags=""><div class="tpadd"><select name="tag" aria-label="add a tag"></select><input name="newtag" placeholder="new tag" hidden autocomplete="off"></div><div class="tpchips"></div></div></div>
+      <div class="two tagged"><div class="tagpick" data-tags=""><div class="tpadd"><select name="tag" aria-label="add a tag"></select><input name="newtag" placeholder="new tag" hidden autocomplete="off"></div><div class="tpchips"></div></div></div>
       <div class="three"><select name="repeat"></select><input name="every" type="number" min="1" value="1" title="Repeat every" aria-label="Repeat every" disabled><select name="repeat_from"></select></div>
       <textarea name="notes" rows="6" placeholder="Notes"></textarea>
       <div class="btns"><button type="button" id="addClose">✕ close</button><button class="primary">add</button></div>
