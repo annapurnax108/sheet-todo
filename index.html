@@ -42,11 +42,12 @@ body, button, select, input, textarea { text-transform: lowercase; }
   .tgoals { margin-top:10px; border-top:1px solid var(--line); padding-top:8px; } .tgoal { display:flex; align-items:center; gap:8px; font-size:13px; padding:2px 0; } .tgn { flex:none; max-width:35%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .tgoal .pips { flex:none; margin:0; gap:4px; } .tgoal .pip { width:12px; height:12px; } .tgs { margin-left:auto; color:var(--mut); text-align:right; } .need { color:var(--tmrw); font-weight:600; }
   .wday.heavy { background:var(--edit-bg); }
   .dayhead { display:flex; justify-content:space-between; font-size:13px; color:var(--mut); margin:12px 2px 4px; } .dayhead[data-a] { cursor:pointer; } .dayhead.over { color:var(--bad); }
-  .tagwrap { display:flex; min-width:0; } .tagwrap > * { min-width:0; width:100%; }
+  .tagsug { grid-column:1/-1; display:flex; flex-wrap:wrap; gap:6px; } .tagsug[hidden] { display:none; } .sugchip { margin-left:0; padding:3px 10px; font-size:13px; line-height:20px; }
+  .tagpick { display:contents; } .tpadd { display:flex; min-width:0; } .tpadd > * { min-width:0; width:100%; } .tpchips { grid-column:1/-1; display:flex; flex-wrap:wrap; gap:6px; } .tpchips:empty { display:none; } .tpchips .tchip { margin-left:0; padding:0 4px 0 9px; } .tchip .tpdel { margin-left:6px; padding:0 4px; opacity:.7; cursor:pointer; } .edit .two.tagged .tpadd { grid-column:1/-1; }
   .tchip { display:inline-block; margin-left:6px; padding:0 7px; border-radius:999px; font-size:11px; line-height:18px; vertical-align:middle; white-space:nowrap; cursor:pointer; background:hsl(var(--h) 70% 90%); color:hsl(var(--h) 60% 28%); }
   @media (prefers-color-scheme: dark) { .tchip { background:hsl(var(--h) 35% 26%); color:hsl(var(--h) 70% 82%); } }
-  .filters select#tagSel { flex:1.5 1 0; min-width:0; font-size:16px; padding:4px 6px; text-align:center; } .filters select#tagSel.on { background:var(--acc); color:#fff; border-color:var(--acc); }
-  .edit .two.tri { grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) minmax(0,1fr); }
+  /* 16px so iOS doesn't zoom the page on tap, scaled to look like the 13px buttons */
+  .filters select#tagSel { flex:1.5 1 0; min-width:0; font-size:16px; zoom:.8125; padding:7px 6px; text-align:center; } .filters select#tagSel.on { background:var(--acc); color:#fff; border-color:var(--acc); }
   .wchip { position:relative; text-decoration:underline dotted; text-underline-offset:3px; cursor:pointer; }
   .wdate, .tdate { position:absolute; inset:0; width:100%; height:100%; opacity:0; font-size:16px; cursor:pointer; }
   .wback { font-size:13px; color:var(--acc); margin-top:8px; cursor:pointer; text-align:right; }
@@ -118,8 +119,9 @@ body, button, select, input, textarea { text-transform: lowercase; }
   <form id="add">
     <input name="due" type="date" title="Due date">
     <input name="task" placeholder="New task…" required autocomplete="off">
+    <div id="tagSug" class="tagsug" hidden></div>
     <div id="more" class="edit" hidden>
-      <div class="two"><select name="status"></select><div class="tagwrap"><select name="tag" aria-label="tag"></select><input name="newtag" placeholder="new tag" hidden autocomplete="off"></div></div>
+      <div class="two"><select name="status"></select><div class="tagpick" data-tags=""><div class="tpadd"><select name="tag" aria-label="add a tag"></select><input name="newtag" placeholder="new tag" hidden autocomplete="off"></div><div class="tpchips"></div></div></div>
       <div class="three"><select name="repeat"></select><input name="every" type="number" min="1" value="1" title="Repeat every" aria-label="Repeat every" disabled><select name="repeat_from"></select></div>
       <textarea name="notes" rows="6" placeholder="Notes"></textarea>
       <div class="btns"><button type="button" id="addClose">✕ close</button><button class="primary">add</button></div>
@@ -161,21 +163,25 @@ const normTag = s => String(s || '').replace(/^#+/, '').trim().toLowerCase().rep
 function splitTags(text) { const tags = []; const title = String(text || '').replace(TAG_RE, (m, sp, tag) => { tag = tag.toLowerCase(); if (!tags.includes(tag)) tags.push(tag); return sp ? ' ' : ''; }).replace(/\s{2,}/g, ' ').trim(); return { title, tags }; }
 const joinTags = (title, tags) => [title, ...tags.map(g => '#' + g)].join(' ').trim();
 const tagsOf = t => splitTags(t.task).tags;
-// text for a new task: the dropdown's tag goes first, any #tags typed in the box are kept
-const composeNew = (typed, pick) => { const sp = splitTags(typed); return joinTags(sp.title, pick ? [pick, ...sp.tags.filter(g => g !== pick)] : sp.tags); };
-// text after editing: the dropdown replaces the first tag, extra tags stay, tags typed into the title are added
-const composeEdit = (typed, orig, pick) => {
-  const ty = splitTags(typed), or = splitTags(orig), rest = or.tags.slice(1);
-  return joinTags(ty.title || or.title, [...(pick ? [pick] : []), ...rest.filter(g => g !== pick), ...ty.tags.filter(g => g !== pick && !rest.includes(g))]);
-};
+// text for a new task: the picked tags go first, any #tags typed in the box are kept
+const composeNew = (typed, picks) => { const sp = splitTags(typed); return joinTags(sp.title, [...picks, ...sp.tags.filter(g => !picks.includes(g))]); };
+// text after editing: the picker holds the task's full tag list (so a removed chip stays removed); tags typed into the title are added
+const composeEdit = (typed, orig, picks) => { const ty = splitTags(typed), or = splitTags(orig); return joinTags(ty.title || or.title, [...picks, ...ty.tags.filter(g => !picks.includes(g))]); };
 let tagFilter = '';
 const matchesTag = t => !tagFilter || tagsOf(t).includes(tagFilter);
 // existing tags with how many real tasks use them, most used first (weekly-goal session/missed rows are not counted)
 const allTags = () => { const c = {}; tasks.forEach(t => { if (!isGoal(t.repeat) || isOpen(t)) tagsOf(t).forEach(g => { c[g] = (c[g] || 0) + 1; }); }); return Object.entries(c).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])); };
 const tagHue = g => { let h = 0; for (const ch of g) h = (h * 31 + ch.codePointAt(0)) % 360; return h; };
 const tagChips = tags => tags.map(g => `<span class="tchip" data-a="tagpick" data-tag="${esc(g)}" style="--h:${tagHue(g)}">${esc(g)}</span>`).join('');
-const tagOptions = (cur, withCounts = true) => { const list = allTags(); return '<option value="">no tag</option>' + list.map(([g, n]) => `<option value="${esc(g)}"${g === cur ? ' selected' : ''}>${esc(g)}${withCounts ? ` (${n})` : ''}</option>`).join('')
-  + (cur && !list.some(([g]) => g === cur) ? `<option value="${esc(cur)}" selected>${esc(cur)}</option>` : '') + '<option value="__new">+ new tag…</option>'; };
+// multi-select tag picker: chips (with ✕) for the chosen tags, and a dropdown that adds one more (existing tags, or "+ new tag…")
+const tagAddOptions = picked => '<option value="">+ tag</option>' + allTags().filter(([g]) => !picked.includes(g)).map(([g, n]) => `<option value="${esc(g)}">${esc(g)} (${n})</option>`).join('') + '<option value="__new">+ new tag…</option>';
+const pickChips = tags => tags.map(g => `<span class="tchip" style="--h:${tagHue(g)}">${esc(g)}<b class="tpdel" data-tag="${esc(g)}" role="button" aria-label="remove tag ${esc(g)}">✕</b></span>`).join('');
+const tagPickHtml = tags => `<div class="tagpick" data-tags="${esc(tags.join(' '))}"><div class="tpadd"><select name="tag" aria-label="add a tag">${tagAddOptions(tags)}</select><input name="newtag" placeholder="new tag" hidden autocomplete="off"></div><div class="tpchips">${pickChips(tags)}</div></div>`;
+const pickedOf = box => (box.dataset.tags || '').split(' ').filter(Boolean);
+function renderPick(box, tags) { // redraw the chips and the add dropdown for a picker
+  box.dataset.tags = tags.join(' '); box.querySelector('.tpchips').innerHTML = pickChips(tags);
+  const sel = box.querySelector('[name=tag]'); sel.innerHTML = tagAddOptions(tags); sel.value = ''; sel.hidden = false; box.querySelector('[name=newtag]').hidden = true;
+}
 
 const isOpen = t => t.status !== 'done' && t.status !== 'missed';
 let cfg = load('cfg', {}), tasks = load('tasks', []).map(norm), queue = load('queue', []), filter = 'Today', query = '', editing = null, syncing = false, histOpen = new Set(), histAll = new Set(), notesOpen = new Set(), dueOpen = null, winsDay = null, winsScroll = null, winsJump = false, todayDay = null, todayWeek = false, todayScroll = null, todayJump = false;
@@ -488,10 +494,10 @@ function render() {
       ${t.repeat ? `<div class="rep"${plus ? ' data-a="hist"' : ''}>↻ ${esc(repeatLabel(t.repeat))}${plus ? (histOpen.has(t.series) ? ' ▴ history' : ' ▾ history') : t.series ? ' · ' + seriesStats(t.series) : ''}</div>${plus ? goalBox(t) : ''}${plus && histOpen.has(t.series) ? histHtml(t) : ''}` : ''}
       ${!ed && notesOpen.has(t.id) ? `<textarea class="qnote" name="qnote" rows="3" placeholder="Add a note…">${esc(t.notes)}</textarea><button class="qdone" data-a="notedone">done</button>` : ''}
       ${!ed && !goal && isOpen(t) && dueOpen === t.id ? quickDueHtml(t) : ''}
-      ${ed ? `<div class="edit"><input name="task" value="${esc(splitTags(t.task).title || t.task)}">
-        <div class="two tri"><input name="due" type="date" value="${esc(t.due)}">
+      ${ed ? `<div class="edit"><input name="task" value="${esc(splitTags(t.task).title || t.task)}"><div class="tagsug" hidden></div>
+        <div class="two tagged"><input name="due" type="date" value="${esc(t.due)}">
         <select name="status">${STATUSES.map(s => `<option ${s === t.status ? 'selected' : ''}>${s}</option>`).join('')}</select>
-        <div class="tagwrap"><select name="tag" aria-label="tag">${tagOptions(splitTags(t.task).tags[0] || '')}</select><input name="newtag" placeholder="new tag" hidden autocomplete="off"></div></div>
+        ${tagPickHtml(splitTags(t.task).tags)}</div>
         <div class="three"><select name="repeat">${REPEATS.map(r => `<option value="${r}" ${r === parseRepeat(t.repeat).unit || (!r && !t.repeat) ? 'selected' : ''}>${repeatOpt(r)}</option>`).join('')}</select>
         <input name="every" type="number" min="1" value="${parseRepeat(t.repeat).n}" title="Repeat every" aria-label="Repeat every"${t.repeat ? '' : ' disabled'}>
         <select name="repeat_from"><option value="due" ${t.repeat_from !== 'done' ? 'selected' : ''}>from due date</option><option value="done" ${t.repeat_from === 'done' ? 'selected' : ''}>from completion</option></select></div>
@@ -505,7 +511,7 @@ function render() {
   if (tk) { if (todayJump) { const sel = tk.querySelector('.sel'); tk.scrollLeft = sel ? sel.parentNode.getBoundingClientRect().left - tk.getBoundingClientRect().left + tk.scrollLeft : 0; todayScroll = sel ? tk.scrollLeft : null; todayJump = false; } else tk.scrollLeft = todayScroll ?? 0; tk.onscroll = () => { todayScroll = tk.scrollLeft; }; }
   const wk = document.querySelector('.wweek:not(.tweek)'); if (wk) { if (winsJump) { const sel = wk.querySelector('.sel'); wk.scrollLeft = sel ? sel.parentNode.getBoundingClientRect().left - wk.getBoundingClientRect().left + wk.scrollLeft : wk.scrollWidth; winsScroll = sel ? wk.scrollLeft : null; winsJump = false; } else wk.scrollLeft = winsScroll ?? wk.scrollWidth; wk.onscroll = () => { winsScroll = wk.scrollLeft; }; } // strip: keep the page you were on
   document.body.classList.toggle('typing', !!editing || !!document.querySelector('.qnote')); // extra room below while a note box is open
-  if (addEl('newtag').hidden) fillAddTags(addEl('tag').value); // keep the add form's tag list current (unless a new tag is being typed)
+  if (addEl('newtag').hidden) fillAddTags(false); // keep the add form's tag list current (unless a new tag is being typed)
 }
 
 // the add form's extra fields (status, repeat, notes) open when the task box is tapped
@@ -513,12 +519,39 @@ const addForm = $('#add'), addEl = n => addForm.elements[n];
 addEl('status').innerHTML = ['todo', 'doing', 'done'].map(s => `<option>${s}</option>`).join('');
 addEl('repeat').innerHTML = REPEATS.map(r => `<option value="${r}">${repeatOpt(r)}</option>`).join('');
 addEl('repeat_from').innerHTML = '<option value="due">from due date</option><option value="done">from completion</option>';
-const setStatusDefault = () => { addEl('status').value = filter === 'doing' || filter === 'done' ? filter : filter === 'Wins' ? 'done' : 'todo'; /* a task added in these filters starts in that stage */ fillAddTags(tagFilter); };
-// the add form's tag dropdown lists the existing tags (so one project doesn't end up with two spellings); "+ new tag…" swaps in a text box
-const fillAddTags = cur => { const sel = addEl('tag'); cur = cur ?? sel.value; sel.innerHTML = tagOptions(cur === '__new' ? '' : cur); sel.value = cur === '__new' ? '' : cur; showTagBox(sel, false); };
+const setStatusDefault = () => { addEl('status').value = filter === 'doing' || filter === 'done' ? filter : filter === 'Wins' ? 'done' : 'todo'; /* a task added in these filters starts in that stage */ fillAddTags(true); };
+// the add form's tag picker starts with the active tag filter; its dropdown lists the existing tags (so one project doesn't end up with two spellings)
+const addPick = () => $('#add .tagpick');
+const fillAddTags = reset => { const box = addPick(); renderPick(box, reset ? (tagFilter ? [tagFilter] : []) : pickedOf(box)); };
 const showTagBox = (sel, on) => { const box = sel.parentNode.querySelector('[name=newtag]'); sel.hidden = on; box.hidden = !on; if (on) { box.value = ''; box.focus(); } };
-const commitNewTag = box => { const sel = box.parentNode.querySelector('[name=tag]'), tag = normTag(box.value); if (tag && ![...sel.options].some(o => o.value === tag)) sel.add(new Option(tag, tag), sel.options[sel.options.length - 1]); sel.value = tag; box.hidden = true; sel.hidden = false; };
-document.addEventListener('change', e => { if (e.target.name === 'tag' && e.target.value === '__new') showTagBox(e.target, true); if (e.target.id === 'tagSel') { tagFilter = e.target.value; render(); fillAddTags(tagFilter); } });
+const commitNewTag = input => { const box = input.closest('.tagpick'), tag = normTag(input.value), cur = pickedOf(box); renderPick(box, tag && !cur.includes(tag) ? [...cur, tag] : cur); };
+document.addEventListener('change', e => {
+  if (e.target.name === 'tag') { const box = e.target.closest('.tagpick'); if (e.target.value === '__new') showTagBox(e.target, true); else if (e.target.value) renderPick(box, [...pickedOf(box), e.target.value]); }
+  if (e.target.id === 'tagSel') { tagFilter = e.target.value; render(); fillAddTags(true); }
+});
+// typing "#" in a task title suggests the existing tags (tap one to complete it), so one project keeps one spelling
+const TAG_AT_CARET = /(^|\s)#([\p{L}\p{N}_-]*)$/u;
+const sugBar = input => input.closest('form#add') ? $('#tagSug') : input.parentNode.querySelector('.tagsug');
+function tagSuggest(input) {
+  const bar = sugBar(input); if (!bar) return;
+  const pos = input.selectionStart ?? input.value.length, before = input.value.slice(0, pos), m = before.match(TAG_AT_CARET);
+  if (!m) { bar.hidden = true; return; }
+  const prefix = m[2].toLowerCase(), used = splitTags(before.slice(0, m.index + m[1].length) + input.value.slice(pos)).tags;
+  const list = allTags().map(([g]) => g).filter(g => g.startsWith(prefix) && !used.includes(g)).slice(0, 8);
+  bar.innerHTML = list.map(g => `<span class="tchip sugchip" data-tag="${esc(g)}" style="--h:${tagHue(g)}">#${esc(g)}</span>`).join('');
+  bar.hidden = !list.length;
+}
+function applyTagSuggestion(input, tag) {
+  const pos = input.selectionStart ?? input.value.length, before = input.value.slice(0, pos), m = before.match(TAG_AT_CARET); if (!m) return;
+  const start = m.index + m[1].length, np = start + tag.length + 2;
+  input.value = before.slice(0, start) + '#' + tag + ' ' + input.value.slice(pos).replace(/^\s+/, ''); input.setSelectionRange(np, np); tagSuggest(input);
+}
+document.addEventListener('input', e => { if (e.target.matches?.('input[name=task]')) tagSuggest(e.target); });
+['pointerdown', 'mousedown'].forEach(ev => document.addEventListener(ev, e => { // keep the keyboard open while picking a suggestion
+  const chip = e.target.closest?.('.sugchip'); if (!chip) return; e.preventDefault();
+  if (ev === 'pointerdown') { const bar = chip.parentNode; applyTagSuggestion(bar.id === 'tagSug' ? addEl('task') : bar.parentNode.querySelector('[name=task]'), chip.dataset.tag); }
+}));
+document.addEventListener('click', e => { if (e.target.classList?.contains('tpdel')) { const box = e.target.closest('.tagpick'); renderPick(box, pickedOf(box).filter(g => g !== e.target.dataset.tag)); } });
 document.addEventListener('focusout', e => { if (e.target.name === 'newtag' && !e.target.hidden) commitNewTag(e.target); });
 document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.name === 'newtag') { e.preventDefault(); commitNewTag(e.target); } });
 let skipOpen = false;
@@ -530,8 +563,8 @@ addForm.addEventListener('submit', e => {
   e.preventDefault();
   const repeat = fmtRepeat(addEl('repeat').value, addEl('every').value), status = addEl('status').value;
   const goal = isGoal(repeat);
-  const pick = addEl('tag').value;
-  const t = { id: uuid(), task: composeNew(addEl('task').value, pick === '__new' ? '' : pick), status: 'todo', due: goal ? weekEnd(today()) : addEl('due').value, notes: addEl('notes').value, completed_at: '',
+  $('#tagSug').hidden = true; if (!addEl('newtag').hidden) commitNewTag(addEl('newtag'));
+  const t = { id: uuid(), task: composeNew(addEl('task').value, pickedOf(addPick())), status: 'todo', due: goal ? weekEnd(today()) : addEl('due').value, notes: addEl('notes').value, completed_at: '',
     repeat, repeat_from: repeat && !goal ? addEl('repeat_from').value : '', series: repeat ? uuid() : '', updated_at: new Date().toISOString() };
   if (goal) upsert(t); else if (repeat && status === 'done') advance(t, 'done', false); else { const row = withStatus(t, status); if (status === 'done' && filter === 'Wins' && winsDay) row.completed_at = winsDay; upsert(row); } // added while a past day is selected: done on that day
   addForm.reset(); setDueDefault(); setStatusDefault(); $('#more').hidden = true; focusTask();
@@ -570,7 +603,7 @@ $('#list').addEventListener('click', e => {
   else if (a === 'notedone') { document.activeElement?.blur?.(); notesOpen.delete(t.id); render(); }
   else if (a === 'due') { dueOpen = dueOpen === t.id ? null : t.id; render(); if (dueOpen) revealRow(t.id); }
   else if (a === 'dueset') { const d = dueChoices(t)[e.target.closest('[data-d]').dataset.d]; dueOpen = null; upsert({ ...t, due: d }); }
-  else if (a === 'tagpick') { const g = e.target.closest('[data-tag]').dataset.tag; tagFilter = tagFilter === g ? '' : g; render(); fillAddTags(tagFilter); }
+  else if (a === 'tagpick') { const g = e.target.closest('[data-tag]').dataset.tag; tagFilter = tagFilter === g ? '' : g; render(); fillAddTags(true); }
   else if (a === 'note') { dueOpen = null; const open = !notesOpen.has(t.id); open ? notesOpen.add(t.id) : notesOpen.delete(t.id); render(); if (open) liftNote(t.id, !t.notes); }
   else if (a === 'histall') { histAll.has(t.series) ? histAll.delete(t.series) : histAll.add(t.series); render(); }
   else if (a === 'hist') { histOpen.has(t.series) ? histOpen.delete(t.series) : histOpen.add(t.series); render(); }
@@ -582,7 +615,8 @@ $('#list').addEventListener('click', e => {
   else if (a === 'save') {
     const q = n => item.querySelector(`[name=${n}]`).value; editing = null;
     const repeat = fmtRepeat(q('repeat'), q('every')), status = q('status');
-    const nb = item.querySelector('[name=newtag]'), pickT = normTag(nb && !nb.hidden ? nb.value : q('tag') === '__new' ? '' : q('tag'));
+    const nb = item.querySelector('[name=newtag]'); if (nb && !nb.hidden) commitNewTag(nb);
+    const pickT = pickedOf(item.querySelector('.tagpick'));
     const edited = { ...t, task: composeEdit(q('task'), t.task, pickT) || t.task, due: isGoal(repeat) && !isGoal(t.repeat) ? weekEnd(today()) : q('due'), notes: q('notes'), repeat, repeat_from: repeat && !isGoal(repeat) ? q('repeat_from') : '', series: repeat ? t.series || uuid() : t.series };
     if (repeat && !isGoal(repeat) && isOpen(t) && !isOpen({ status })) advance(edited, status); else upsert(withStatus(edited, status));
   }
