@@ -41,7 +41,7 @@ body, button, select, input, textarea { text-transform: lowercase; }
   .seg { display:inline-flex; flex:none; border:1px solid var(--line); border-radius:8px; overflow:hidden; } .seg button { border:none; border-radius:0; padding:3px 10px; font-size:12px; background:transparent; } .seg button.on { background:var(--acc); color:#fff; }
   .gdot { display:block; width:5px; height:5px; border-radius:50%; margin:2px auto 0; } .gdot.on { background:var(--good); }
   .tgoals { margin-top:10px; border-top:1px solid var(--line); padding-top:8px; } .tgoal { display:flex; align-items:center; gap:8px; font-size:13px; padding:2px 0; } .tgn { flex:none; max-width:35%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .tgoal .pips { flex:none; margin:0; gap:4px; } .tgoal .pip { width:12px; height:12px; } .tgs { margin-left:auto; color:var(--mut); text-align:right; } .need { color:var(--tmrw); font-weight:600; }
-  .wday.past { opacity:.55; } .wday.over b { color:var(--bad); } .wday.heavy { background:var(--edit-bg); }
+  .wday.heavy { background:var(--edit-bg); }
   .dayhead { display:flex; justify-content:space-between; font-size:13px; color:var(--mut); margin:12px 2px 4px; } .dayhead[data-a] { cursor:pointer; } .dayhead.over { color:var(--bad); }
   .wchip { position:relative; text-decoration:underline dotted; text-underline-offset:3px; cursor:pointer; }
   .wdate, .tdate { position:absolute; inset:0; width:100%; height:100%; opacity:0; font-size:16px; cursor:pointer; }
@@ -372,12 +372,14 @@ function winsHtml() {
     + `<div class="wcheer">${esc(cheer)}</div>${notes ? `<div class="wnote">${esc(notes)}</div>` : ''}<div class="wweek">${weeks}</div>${isToday ? '' : '<div class="wback" data-a="winback">back to today →</div>'}</div>${goals}`;
 }
 // "today" view: what is due, a strip of upcoming days with their task counts, and a day / week switch
+// the upcoming strip is rolling 7-day pages that start at today: page 0 = today … +6, page 1 = +7 … +13, and so on
+const dayPage = d => Math.max(0, Math.floor(Math.round((new Date(d + 'T00:00') - new Date(today() + 'T00:00')) / 864e5) / 7));
 const todayPick = t => {
   if (!isOpen(t)) return false;
   const td = today(), base = todayDay || td;
   if (todayWeek) {
-    const sun = weekEnd(base), cur = weekEnd(td) === sun, lo = cur ? td : addPeriod(sun, 'daily', -6);
-    return isGoal(t.repeat) ? cur : !!t.due && ((cur && t.due < td) || (t.due >= lo && t.due <= sun));
+    const pg = dayPage(base), cur = pg === 0, lo = addPeriod(td, 'daily', 7 * pg), hi = addPeriod(lo, 'daily', 6);
+    return isGoal(t.repeat) ? cur : !!t.due && ((cur && t.due < td) || (t.due >= lo && t.due <= hi));
   }
   return todayDay ? !isGoal(t.repeat) && t.due === todayDay : isGoal(t.repeat) || !!t.due && t.due <= td;
 };
@@ -392,7 +394,7 @@ const goalState = g => {
   return { g, n, got, left, daysLeft, loggedToday, needed: left > 0 && !loggedToday && left >= daysLeft };
 };
 function todayHtml() {
-  const td = today(), day = todayDay || td, isToday = !todayDay, cur = weekEnd(day) === weekEnd(td), cnt = {};
+  const td = today(), day = todayDay || td, isToday = !todayDay, pg = dayPage(day), cur = pg === 0, cnt = {};
   const open = tasks.filter(t => isOpen(t) && !isGoal(t.repeat) && t.due);
   open.forEach(t => { cnt[t.due] = (cnt[t.due] || 0) + 1; });
   const overdue = open.filter(t => t.due < td).length, dueNow = open.filter(t => t.due <= td).length;
@@ -408,18 +410,18 @@ function todayHtml() {
     : (overdue ? 'Start with the oldest.' : n === 1 ? 'Almost there, 1 left.' : `${n} to go. You've got this.`) + (needed.length ? ` ${needed.map(x => x.g.task).join(', ')} needed today.` : '');
   const total = doneToday + dueNow + needed.length, pct = total ? Math.round(100 * doneToday / total) : 0;
   const prog = isToday && !todayWeek && total ? `<div class="tprog"><i style="width:${pct}%"></i></div><div class="wnote">${doneToday} of ${total} done today</div>` : '';
-  const thisMon = addPeriod(weekEnd(td), 'daily', -6), minDay = td, maxDay = addPeriod(td, 'daily', 7 * 259);
-  const ahead = Math.round((new Date(addPeriod(weekEnd(day), 'daily', -6) + 'T00:00') - new Date(thisMon + 'T00:00')) / (7 * 864e5)), pages = Math.min(260, Math.max(12, ahead + 1));
+  const minDay = td, maxDay = addPeriod(td, 'daily', 7 * 259), pages = Math.min(260, Math.max(12, pg + 1));
   const strip = Array.from({ length: pages }, (_, k) => {
-    const mon = addPeriod(thisMon, 'daily', 7 * k);
+    const mon = addPeriod(td, 'daily', 7 * k);
     return `<div class="wpage">${Array.from({ length: 7 }, (_, i) => {
-      const dd = addPeriod(mon, 'daily', i), c = cnt[dd] || 0, past = dd < td, go = !past || c;
+      const dd = addPeriod(mon, 'daily', i), c = cnt[dd] || 0;
       const gd = goals.length || goalDays.size ? `<i class="gdot${goalDays.has(dd) ? ' on' : ''}"></i>` : '';
-      return `<div class="wday${dd === td ? ' today' : ''}${dd === todayDay ? ' sel' : ''}${past ? ' past' : ''}${past && c ? ' over' : ''}${c >= 5 ? ' heavy' : ''}"${go ? ` data-a="todayday" data-day="${dd}"` : ''}>${'MTWTFSS'[i]}<b>${c || '·'}</b><small>${+dd.slice(8)}</small>${gd}</div>`;
+      return `<div class="wday${dd === td ? ' today' : ''}${dd === todayDay ? ' sel' : ''}${c >= 5 ? ' heavy' : ''}" data-a="todayday" data-day="${dd}">${'SMTWTFS'[new Date(dd + 'T00:00').getDay()]}<b>${c || '·'}</b><small>${+dd.slice(8)}</small>${gd}</div>`;
     }).join('')}</div>`;
   }).join('');
   const goalRows = (isToday && !todayWeek || todayWeek && cur) && goals.length ? `<div class="tgoals">${goals.map(x => `<div class="tgoal"><span class="tgn">${esc(x.g.task)}</span><span class="pips">${Array.from({ length: Math.min(10, x.n) }, (_, i) => `<i class="pip${i < x.got ? (x.left ? ' on' : ' met') : ''}"></i>`).join('')}</span><span class="tgs">${x.left ? `${x.left} to go · ${x.daysLeft} day${x.daysLeft === 1 ? '' : 's'} left` : '✓ met'}${x.needed ? ' <b class="need">needed today</b>' : ''}</span></div>`).join('')}</div>` : '';
-  const wkText = cur ? 'this week' : 'week of ' + shortDay(addPeriod(weekEnd(day), 'daily', -6));
+  const lo = addPeriod(td, 'daily', 7 * pg), hi = addPeriod(lo, 'daily', 6);
+  const wkText = cur ? 'next 7 days' : shortDay(lo) + '–' + (lo.slice(5, 7) === hi.slice(5, 7) ? +hi.slice(8) : shortDay(hi));
   const chip = `<label class="wchip"><span>${todayWeek ? wkText : isToday ? 'today' : dayLabel(day)} ▾</span><input class="tdate" type="date" value="${day}" min="${minDay}" max="${maxDay}" aria-label="go to a date"></label>`;
   const seg = `<span class="seg"><button data-a="todayview" data-v="day" class="${todayWeek ? '' : 'on'}">day</button><button data-a="todayview" data-v="week" class="${todayWeek ? 'on' : ''}">week</button></span>`;
   return `<div class="wins"><div class="wtop"><span class="wcount tcount">${n}</span><span class="wlabel">${isToday && !todayWeek ? 'to do' : 'due'} ${chip}</span>${isToday && overdue ? `<span class="wyest bad">${overdue} overdue</span>` : ''}</div>`
