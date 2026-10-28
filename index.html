@@ -322,7 +322,7 @@ function render() {
     </div>`;
   }).join('') || `<p style="color:var(--mut)">${query ? 'No matches.' : 'Nothing here.'}</p>`;
   document.querySelectorAll('.qnote').forEach(growNote);
-  document.body.classList.toggle('typing', !!document.querySelector('.qnote')); // extra room below while a note box is open
+  document.body.classList.toggle('typing', !!editing || !!document.querySelector('.qnote')); // extra room below while a note box is open
 }
 
 // the add form's extra fields (status, repeat, notes) open when the task box is tapped
@@ -364,7 +364,7 @@ $('#list').addEventListener('click', e => {
   else if (a === 'hist') { histOpen.has(t.series) ? histOpen.delete(t.series) : histOpen.add(t.series); render(); }
   else if (a === 'toggle') { if (isGoal(t.repeat)) del(t.id); else if (t.status === 'done') reopen(t); else if (t.repeat) advance(t, 'done'); else upsert(withStatus(t, 'done')); }
   else if (a === 'skip') { editing = null; advance(t, 'missed'); }
-  else if (a === 'edit') { editing = editing === t.id ? null : t.id; notesOpen.delete(t.id); render(); }
+  else if (a === 'edit') { editing = editing === t.id ? null : t.id; notesOpen.delete(t.id); render(); liftEdit(); if (editing) [60, 300].forEach(ms => setTimeout(() => editing === t.id && liftEdit(), ms)); }
   else if (a === 'cancel') { editing = null; render(); }
   else if (a === 'del') { if (confirm('Delete this task?')) { editing = null; del(t.id); } }
   else if (a === 'save') {
@@ -414,7 +414,7 @@ const fitNote = ta => {
 const activeNote = () => document.activeElement?.matches?.('textarea[name=notes]') ? document.activeElement : null;
 document.addEventListener('focusin', e => {
   if (e.target.name === 'notes') { e.target.scrollIntoView({ block: 'start' }); fitNote(e.target); setTimeout(refit, 350); setTimeout(refit, 800); }
-  else { noteBoxes().forEach(n => n.style.height = ''); if (e.target.matches?.('.qnote')) { showQnote(e.target); setTimeout(refit, 350); setTimeout(refit, 800); } }
+  else { noteBoxes().forEach(n => n.style.height = ''); if (e.target.matches?.('.qnote')) { showQnote(e.target); setTimeout(refit, 350); setTimeout(refit, 800); } else if (inEditPanel(e.target)) { showField(e.target); setTimeout(refit, 350); setTimeout(refit, 800); } }
 });
 // opening a note scrolls it into the part of the screen the keyboard won't cover, moving only as far as needed
 const liftNote = (id, focus) => {
@@ -426,16 +426,26 @@ const liftNote = (id, focus) => {
   if (focus) box.focus({ preventScroll: true });
 };
 // keep the quick-note box and its done button above the keyboard; refits as the keyboard slides up
-const showQnote = ta => {
-  const vv = window.visualViewport, done = ta.nextElementSibling; if (!vv) return;
-  const top = ta.getBoundingClientRect().top, bottom = (done || ta).getBoundingClientRect().bottom;
+const showField = (el, bottomEl = el) => {
+  const vv = window.visualViewport; if (!vv) return;
+  const top = el.getBoundingClientRect().top, bottom = bottomEl.getBoundingClientRect().bottom;
   const lo = vv.offsetTop + 64, hi = vv.offsetTop + vv.height - 12;
   if (bottom - top > hi - lo || top < lo) window.scrollBy(0, top - lo); // taller than the screen, or hidden at the top: start at the top
   else if (bottom > hi) window.scrollBy(0, bottom - hi);
 };
+const showQnote = ta => showField(ta, ta.nextElementSibling || ta);
+const inEditPanel = el => el?.matches?.('.item.editing input, .item.editing select, .item.editing textarea:not([name=notes])');
+// opening the edit panel brings it fully into view (scrolling only if needed)
+const liftEdit = () => {
+  const p = document.querySelector('.item.editing'); if (!p) return;
+  const r = p.getBoundingClientRect(), lo = 64, hi = innerHeight - 24;
+  if (r.height > hi - lo || r.top < lo) window.scrollBy({ top: r.top - lo, behavior: 'instant' });
+  else if (r.bottom > hi) window.scrollBy({ top: r.bottom - hi, behavior: 'instant' });
+};
 const refit = () => {
   const a = document.activeElement;
   if (a?.matches?.('.qnote')) showQnote(a);
+  else if (inEditPanel(a)) showField(a);
   else { const n = activeNote(); if (n) { n.scrollIntoView({ block: 'start' }); fitNote(n); } }
 };
 window.visualViewport?.addEventListener('resize', refit);
