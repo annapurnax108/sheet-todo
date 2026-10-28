@@ -33,6 +33,9 @@ body, button, select, input, textarea { text-transform: lowercase; }
   .item { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin-bottom:8px; }
   .row { display:flex; align-items:center; gap:10px; }
   .row .t { flex:1; word-break:break-word; } .done .t { text-decoration:line-through; color:var(--mut); }
+  .duebtn { cursor:pointer; text-decoration:underline dotted; text-underline-offset:3px; padding:4px 0; } .duebtn.on { text-decoration:underline; }
+  .qdue { display:flex; flex-wrap:wrap; gap:6px; margin:6px 0 0 30px; } .qdue button { font-size:13px; padding:6px 10px; } .qdue button.on { background:var(--acc); color:#fff; border-color:var(--acc); }
+  .qdate { font-size:16px; padding:3px 8px; min-width:0; flex:1 1 9em; }
   .due { font-size:13px; color:var(--mut); } .due.over { color:var(--bad); font-weight:600; } .due.soon { color:var(--soon); font-weight:600; } .due.tmrw { color:var(--tmrw); font-weight:600; }
   .rep { color:var(--mut); font-size:12px; margin:4px 0 0 30px; }
   .notes { color:var(--mut); font-size:14px; margin:6px 0 0 30px; white-space:pre-wrap; }
@@ -121,7 +124,7 @@ const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; 
 const save = (k, v) => localStorage.setItem(k, JSON.stringify(v));
 const norm = t => ({ repeat: '', repeat_from: '', series: '', ...t, status: String(t.status || 'todo').toLowerCase() }); // sheet may hold Done/done
 const isOpen = t => t.status !== 'done' && t.status !== 'missed';
-let cfg = load('cfg', {}), tasks = load('tasks', []).map(norm), queue = load('queue', []), filter = 'Today', query = '', editing = null, syncing = false, histOpen = new Set(), histAll = new Set(), notesOpen = new Set();
+let cfg = load('cfg', {}), tasks = load('tasks', []).map(norm), queue = load('queue', []), filter = 'Today', query = '', editing = null, syncing = false, histOpen = new Set(), histAll = new Set(), notesOpen = new Set(), dueOpen = null;
 
 const uuid = () => crypto.randomUUID ? crypto.randomUUID() : 'id-' + Date.now() + Math.random().toString(16).slice(2);
 const today = () => new Date().toLocaleDateString('en-CA');
@@ -286,6 +289,12 @@ function del(id) {
 
 // quick-note box is as tall as its text, so the whole note is visible
 const growNote = ta => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight + 2, innerHeight * 0.7) + 'px'; };
+// quick reschedule row under a task: one tap for the usual moves, a date picker for the rest
+const dueChoices = t => ({ today: today(), tomorrow: inDays(1), week: addPeriod(t.due && t.due > today() ? t.due : today(), 'daily', 7) });
+const quickDueHtml = t => {
+  const c = dueChoices(t), b = (k, label) => `<button data-a="dueset" data-d="${k}" class="${t.due === c[k] ? 'on' : ''}">${label}</button>`;
+  return `<div class="qdue">${b('today', 'today')}${b('tomorrow', 'tomorrow')}${b('week', '+1 week')}<input class="qdate" type="date" value="${esc(t.due)}" aria-label="pick a date"></div>`;
+};
 function render() {
   const fbtn = f => `<button data-f="${f}" class="${f === filter ? 'on' : ''}"${f === 'Repeat' ? ' title="repeating" aria-label="repeating"' : ''}>${f === 'Repeat' ? '↻' : f}</button>`;
   $('#filters').innerHTML = `<div class="frow">${MAIN.map(fbtn).join('')}<button data-more aria-label="more filters" class="${MORE.includes(filter) ? 'on' : ''}">${MORE.includes(filter) ? (filter === 'Repeat' ? '↻' : filter) : '⋯'}</button></div>`
@@ -306,11 +315,12 @@ function render() {
       <div class="row">${plus ? `<button class="plus${met ? ' met' : ''}" data-a="log" aria-label="log a session">+1</button>` : `<input type="checkbox" data-a="toggle" ${t.status === 'done' ? 'checked' : ''}>`}
         <span class="t" data-a="edit">${esc(t.task)}${t.status === 'doing' ? ' <small>(doing)</small>' : ''}</span>
         ${!ed ? `<button class="nbtn${t.notes ? '' : ' empty'}${notesOpen.has(t.id) ? ' on' : ''}" data-a="note" aria-label="${t.notes ? 'show note' : 'add note'}">💬</button>` : ''}
-        <span class="due ${goal ? '' : over ? 'over' : tmrw ? 'tmrw' : soon ? 'soon' : ''}">${esc(showDate(t.due))}</span>
+        <span class="due ${goal ? '' : over ? 'over' : tmrw ? 'tmrw' : soon ? 'soon' : ''}${isOpen(t) && !goal && !ed ? ' duebtn' + (dueOpen === t.id ? ' on' : '') : ''}"${isOpen(t) && !goal && !ed ? ' data-a="due" role="button" aria-label="change due date"' : ''}>${esc(showDate(t.due) || (isOpen(t) && !goal && !ed ? 'no date' : ''))}</span>
         ${t.status === 'done' && t.completed_at ? `<span class="due">done ${esc(showDate(t.completed_at))}</span>` : ''}
         ${t.status === 'missed' ? '<span class="due">missed</span>' : ''}</div>
       ${t.repeat ? `<div class="rep"${plus ? ' data-a="hist"' : ''}>↻ ${esc(repeatLabel(t.repeat))}${plus ? (histOpen.has(t.series) ? ' ▴ history' : ' ▾ history') : t.series ? ' · ' + seriesStats(t.series) : ''}</div>${plus ? goalBox(t) : ''}${plus && histOpen.has(t.series) ? histHtml(t) : ''}` : ''}
       ${!ed && notesOpen.has(t.id) ? `<textarea class="qnote" name="qnote" rows="3" placeholder="Add a note…">${esc(t.notes)}</textarea><button class="qdone" data-a="notedone">done</button>` : ''}
+      ${!ed && !goal && isOpen(t) && dueOpen === t.id ? quickDueHtml(t) : ''}
       ${ed ? `<div class="edit"><input name="task" value="${esc(t.task)}">
         <div class="two"><input name="due" type="date" value="${esc(t.due)}">
         <select name="status">${STATUSES.map(s => `<option ${s === t.status ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
@@ -347,7 +357,13 @@ addForm.addEventListener('submit', e => {
 });
 // the "every N" box only applies while a repeat unit is chosen
 const syncEvery = sel => { const n = sel.form ? sel.form.elements.every : sel.parentNode.querySelector('[name=every]'); n.disabled = !sel.value; (sel.form ? sel.form.elements.repeat_from : sel.parentNode.querySelector('[name=repeat_from]')).disabled = sel.value === 'goal'; };
-document.addEventListener('change', e => { if (e.target.name === 'repeat') syncEvery(e.target); });
+document.addEventListener('change', e => {
+  if (e.target.name === 'repeat') syncEvery(e.target);
+  if (e.target.classList?.contains('qdate') && e.target.value) { // quick reschedule: picked a date
+    const t = tasks.find(x => x.id === e.target.closest('.item')?.dataset.id); if (!t) return;
+    dueOpen = null; upsert({ ...t, due: e.target.value });
+  }
+});
 addForm.addEventListener('reset', () => setTimeout(() => syncEvery(addEl('repeat'))));
 $('#filters').addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
@@ -359,12 +375,14 @@ $('#list').addEventListener('click', e => {
   const t = tasks.find(x => x.id === item.dataset.id);
   if (a === 'log') logSession(t);
   else if (a === 'notedone') { document.activeElement?.blur?.(); notesOpen.delete(t.id); render(); }
-  else if (a === 'note') { const open = !notesOpen.has(t.id); open ? notesOpen.add(t.id) : notesOpen.delete(t.id); render(); if (open) liftNote(t.id, !t.notes); }
+  else if (a === 'due') { dueOpen = dueOpen === t.id ? null : t.id; render(); if (dueOpen) revealRow(t.id); }
+  else if (a === 'dueset') { const d = dueChoices(t)[e.target.closest('[data-d]').dataset.d]; dueOpen = null; upsert({ ...t, due: d }); }
+  else if (a === 'note') { dueOpen = null; const open = !notesOpen.has(t.id); open ? notesOpen.add(t.id) : notesOpen.delete(t.id); render(); if (open) liftNote(t.id, !t.notes); }
   else if (a === 'histall') { histAll.has(t.series) ? histAll.delete(t.series) : histAll.add(t.series); render(); }
   else if (a === 'hist') { histOpen.has(t.series) ? histOpen.delete(t.series) : histOpen.add(t.series); render(); }
   else if (a === 'toggle') { if (isGoal(t.repeat)) del(t.id); else if (t.status === 'done') reopen(t); else if (t.repeat) advance(t, 'done'); else upsert(withStatus(t, 'done')); }
   else if (a === 'skip') { editing = null; advance(t, 'missed'); }
-  else if (a === 'edit') { editing = editing === t.id ? null : t.id; notesOpen.delete(t.id); render(); liftEdit(); if (editing) [60, 300].forEach(ms => setTimeout(() => editing === t.id && liftEdit(), ms)); }
+  else if (a === 'edit') { dueOpen = null; editing = editing === t.id ? null : t.id; notesOpen.delete(t.id); render(); liftEdit(); if (editing) [60, 300].forEach(ms => setTimeout(() => editing === t.id && liftEdit(), ms)); }
   else if (a === 'cancel') { editing = null; render(); }
   else if (a === 'del') { if (confirm('Delete this task?')) { editing = null; del(t.id); } }
   else if (a === 'save') {
@@ -435,6 +453,8 @@ const showField = (el, bottomEl = el) => {
 };
 const showQnote = ta => showField(ta, ta.nextElementSibling || ta);
 const inEditPanel = el => el?.matches?.('.item.editing input, .item.editing select, .item.editing textarea:not([name=notes])');
+// a row opened near the bottom edge scrolls up just enough to be fully visible
+const revealRow = id => { const r = document.querySelector(`[data-id="${id}"]`)?.getBoundingClientRect(); if (r && r.bottom > innerHeight - 24) window.scrollBy({ top: r.bottom - innerHeight + 24, behavior: 'instant' }); };
 // opening the edit panel brings it fully into view (scrolling only if needed)
 const liftEdit = () => {
   const p = document.querySelector('.item.editing'); if (!p) return;
