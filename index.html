@@ -40,6 +40,7 @@ body, button, select, input, textarea { text-transform: lowercase; }
   .item { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin-bottom:8px; }
   .row { display:flex; align-items:center; gap:10px; }
   .row .t { flex:1; word-break:break-word; } .done .t { text-decoration:line-through; color:var(--mut); }
+  .item.win .t { text-decoration:none; color:var(--fg); } .tick { border:none; background:none; padding:0 4px; width:22px; font-size:16px; line-height:1; color:var(--good); font-weight:700; cursor:pointer; }
   .duebtn { cursor:pointer; text-decoration:underline dotted; text-underline-offset:3px; padding:4px 0; } .duebtn.on { text-decoration:underline; }
   .qdue { display:flex; flex-direction:column; align-items:stretch; gap:6px; width:9.5em; margin:6px 0 0 auto; } .qdue button { font-size:14px; padding:8px 10px; text-align:center; } .qdue button.on { background:var(--acc); color:#fff; border-color:var(--acc); }
   .qdate { font-size:16px; padding:6px 8px; min-width:0; width:100%; }
@@ -344,14 +345,14 @@ function render() {
     const over = t.due && isOpen(t) && t.due < today();
     const soon = t.due && isOpen(t) && t.due > today() && t.due <= inDays(7);
     const tmrw = soon && t.due === inDays(1);
-    const ed = editing === t.id, goal = isGoal(t.repeat), plus = goal && isOpen(t);
+    const ed = editing === t.id, goal = isGoal(t.repeat), plus = goal && isOpen(t), win = filter === 'Wins' && !query && t.status === 'done'; // done-today rows read like the weekly-goal ones
     const goalN = goal ? parseRepeat(t.repeat).n : 0, got = plus ? goalDone(t) : 0, met = plus && got >= goalN;
-    return `<div class="item ${isOpen(t) ? '' : 'done'}${met ? ' met' : ''}${ed ? ' editing' : notesOpen.has(t.id) ? ' noting' : ''}" data-id="${t.id}">
-      <div class="row">${plus ? `<button class="plus${met ? ' met' : ''}" data-a="log" aria-label="log a session">+1</button>` : `<input type="checkbox" data-a="toggle" ${t.status === 'done' ? 'checked' : ''}>`}
+    return `<div class="item ${isOpen(t) ? '' : 'done'}${win ? ' win' : ''}${met ? ' met' : ''}${ed ? ' editing' : notesOpen.has(t.id) ? ' noting' : ''}" data-id="${t.id}">
+      <div class="row">${plus ? `<button class="plus${met ? ' met' : ''}" data-a="log" aria-label="log a session">+1</button>` : win ? `<button class="tick" data-a="toggle" aria-label="undo done" title="undo">✓</button>` : `<input type="checkbox" data-a="toggle" ${t.status === 'done' ? 'checked' : ''}>`}
         <span class="t" data-a="edit">${esc(t.task)}${t.status === 'doing' ? ' <small>(doing)</small>' : ''}</span>
         ${!ed ? `<button class="nbtn${t.notes ? '' : ' empty'}${notesOpen.has(t.id) ? ' on' : ''}" data-a="note" aria-label="${t.notes ? 'show note' : 'add note'}">💬</button>` : ''}
-        <span class="due ${goal ? '' : over ? 'over' : tmrw ? 'tmrw' : soon ? 'soon' : ''}${isOpen(t) && !goal && !ed ? ' duebtn' + (dueOpen === t.id ? ' on' : '') : ''}"${isOpen(t) && !goal && !ed ? ' data-a="due" role="button" aria-label="change due date"' : ''}>${esc(showDate(t.due) || (isOpen(t) && !goal && !ed ? 'no date' : ''))}</span>
-        ${t.status === 'done' && t.completed_at ? `<span class="due">done ${esc(showDate(t.completed_at))}</span>` : ''}
+        ${win ? '' : `<span class="due ${goal ? '' : over ? 'over' : tmrw ? 'tmrw' : soon ? 'soon' : ''}${isOpen(t) && !goal && !ed ? ' duebtn' + (dueOpen === t.id ? ' on' : '') : ''}"${isOpen(t) && !goal && !ed ? ' data-a="due" role="button" aria-label="change due date"' : ''}>${esc(showDate(t.due) || (isOpen(t) && !goal && !ed ? 'no date' : ''))}</span>`}
+        ${t.status === 'done' && t.completed_at && !win ? `<span class="due">done ${esc(showDate(t.completed_at))}</span>` : ''}
         ${t.status === 'missed' ? '<span class="due">missed</span>' : ''}</div>
       ${t.repeat ? `<div class="rep"${plus ? ' data-a="hist"' : ''}>↻ ${esc(repeatLabel(t.repeat))}${plus ? (histOpen.has(t.series) ? ' ▴ history' : ' ▾ history') : t.series ? ' · ' + seriesStats(t.series) : ''}</div>${plus ? goalBox(t) : ''}${plus && histOpen.has(t.series) ? histHtml(t) : ''}` : ''}
       ${!ed && notesOpen.has(t.id) ? `<textarea class="qnote" name="qnote" rows="3" placeholder="Add a note…">${esc(t.notes)}</textarea><button class="qdone" data-a="notedone">done</button>` : ''}
