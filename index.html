@@ -8,8 +8,8 @@
 <link rel="icon" href="icon.svg">
 <meta name="theme-color" content="#1a73e8">
 <style>
-  :root { --bg:#fff; --fg:#202124; --mut:#5f6368; --line:#e0e0e0; --acc:#1a73e8; --card:#f8f9fa; --bad:#d93025; --soon:#1a73e8; --tmrw:#e8710a; --good:#188038; --bonus:#f9ab00; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#16181b; --fg:#e8eaed; --mut:#9aa0a6; --line:#3c4043; --acc:#8ab4f8; --card:#202327; --bad:#f28b82; --soon:#8ab4f8; --tmrw:#fcad70; --good:#81c995; --bonus:#fdd663; } }
+  :root { --bg:#fff; --fg:#202124; --mut:#5f6368; --line:#e0e0e0; --acc:#1a73e8; --card:#f8f9fa; --bad:#d93025; --soon:#1a73e8; --tmrw:#e8710a; --good:#188038; --bonus:#f9ab00; --edit-bg:#e8f0fe; --edit-line:#8ab4f8; --note-bg:#fff8e1; --note-line:#f2c94c; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#16181b; --fg:#e8eaed; --mut:#9aa0a6; --line:#3c4043; --acc:#8ab4f8; --card:#202327; --bad:#f28b82; --soon:#8ab4f8; --tmrw:#fcad70; --good:#81c995; --bonus:#fdd663; --edit-bg:#1f2a3d; --edit-line:#4a6fa5; --note-bg:#3a3320; --note-line:#a8872b; } }
   * { box-sizing: border-box; }
 body, button, select, input, textarea { text-transform: lowercase; }
   body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.4 system-ui,sans-serif; }
@@ -56,11 +56,17 @@ body, button, select, input, textarea { text-transform: lowercase; }
   .hw { display:grid; grid-template-columns:5.5em 1fr 3.5em 4.5em; gap:6px; padding:2px 0; align-items:center; } .hw .dots { letter-spacing:1px; overflow:hidden; white-space:nowrap; }
   .hw.ok { color:var(--good); } .hw.short span:last-child { color:var(--bad); font-weight:600; } .hsum { margin-top:4px; } .hmore { cursor:pointer; color:var(--acc); padding:2px 0; }
   .nbtn { border:1px solid transparent; background:none; padding:2px 6px; font-size:15px; line-height:1; opacity:.7; min-width:32px; min-height:32px; }
-  .nbtn.on { opacity:1; border-color:var(--acc); }
+  .nbtn.on { opacity:1; border-color:var(--note-line); background:var(--note-bg); }
   .nbtn.empty { opacity:.3; } .nbtn.empty.on { opacity:.8; }
-  .qnote { display:block; width:calc(100% - 30px); margin:6px 0 0 30px; font-size:16px; min-height:4.5em; resize:vertical; }
+  .qnote { display:block; width:calc(100% - 30px); margin:6px 0 0 30px; font-size:16px; min-height:4.5em; resize:vertical; background:var(--note-bg); border:1px solid var(--note-line); }
+  .qnote:focus { outline:2px solid var(--note-line); outline-offset:0; }
   body.typing main { padding-bottom:60vh; } /* room to scroll the last items above the keyboard */
-  .qdone { display:block; margin:6px 0 0 auto; padding:4px 14px; font-size:13px; }
+  .qdone { display:block; margin:6px 0 0 auto; padding:4px 14px; font-size:13px; border-color:var(--note-line); background:var(--note-bg); }
+  .item.noting { border-left:4px solid var(--note-line); }
+  .item.editing { background:var(--edit-bg); border:1px solid var(--edit-line); border-left:4px solid var(--acc); }
+  .item.editing .edit input, .item.editing .edit select, .item.editing .edit textarea { background:var(--bg); border-color:var(--edit-line); }
+  .item.editing .edit input:focus, .item.editing .edit select:focus, .item.editing .edit textarea:focus { outline:2px solid var(--acc); outline-offset:0; }
+  .item.editing .edit input[name=task] { font-weight:600; }
   @media (max-width:520px) { input, select, textarea { font-size:16px; } }
   .plus { padding:3px 0; width:34px; font-size:12px; font-weight:600; color:var(--soon); border-color:var(--soon); }
   .three { display:grid; grid-template-columns:1fr 4.2em 1.3fr; gap:8px; } input:disabled { opacity:.45; }
@@ -296,7 +302,7 @@ function render() {
     const tmrw = soon && t.due === inDays(1);
     const ed = editing === t.id, goal = isGoal(t.repeat), plus = goal && isOpen(t);
     const goalN = goal ? parseRepeat(t.repeat).n : 0, got = plus ? goalDone(t) : 0, met = plus && got >= goalN;
-    return `<div class="item ${isOpen(t) ? '' : 'done'}${met ? ' met' : ''}" data-id="${t.id}">
+    return `<div class="item ${isOpen(t) ? '' : 'done'}${met ? ' met' : ''}${ed ? ' editing' : notesOpen.has(t.id) ? ' noting' : ''}" data-id="${t.id}">
       <div class="row">${plus ? `<button class="plus${met ? ' met' : ''}" data-a="log" aria-label="log a session">+1</button>` : `<input type="checkbox" data-a="toggle" ${t.status === 'done' ? 'checked' : ''}>`}
         <span class="t" data-a="edit">${esc(t.task)}${t.status === 'doing' ? ' <small>(doing)</small>' : ''}</span>
         ${!ed ? `<button class="nbtn${t.notes ? '' : ' empty'}${notesOpen.has(t.id) ? ' on' : ''}" data-a="note" aria-label="${t.notes ? 'show note' : 'add note'}">💬</button>` : ''}
