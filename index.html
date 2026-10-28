@@ -432,8 +432,8 @@ $('#filters').addEventListener('click', e => {
 });
 $('#list').addEventListener('click', e => {
   const a = e.target.closest('[data-a]')?.dataset.a, item = e.target.closest('.item');
-  if (a === 'winday') { const d = e.target.closest('[data-day]').dataset.day; winsDay = d === today() ? null : d; render(); return; }
-  if (a === 'winback') { winsDay = null; render(); return; }
+  if (a === 'winday') { const d = e.target.closest('[data-day]').dataset.day; winsDay = d === today() ? null : d; if (!winsDay) winsScroll = null; render(); return; }
+  if (a === 'winback') { winsDay = null; winsScroll = null; render(); return; } // back to today also brings the strip to this week
   if (!a || !item) return;
   const t = tasks.find(x => x.id === item.dataset.id);
   if (a === 'log') logSession(t);
