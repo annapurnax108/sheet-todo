@@ -59,6 +59,7 @@ body, button, select, input, textarea { text-transform: lowercase; }
   .nbtn.on { opacity:1; border-color:var(--acc); }
   .nbtn.empty { opacity:.3; } .nbtn.empty.on { opacity:.8; }
   .qnote { display:block; width:calc(100% - 30px); margin:6px 0 0 30px; font-size:16px; min-height:4.5em; resize:vertical; }
+  body.typing main { padding-bottom:60vh; } /* room to scroll the last items above the keyboard */
   .qdone { display:block; margin:6px 0 0 auto; padding:4px 14px; font-size:13px; }
   @media (max-width:520px) { input, select, textarea { font-size:16px; } }
   .plus { padding:3px 0; width:34px; font-size:12px; font-weight:600; color:var(--soon); border-color:var(--soon); }
@@ -394,7 +395,7 @@ $('#list').addEventListener('focusout', e => {
     tasks[tasks.indexOf(t)] = n; save('tasks', tasks); queue.push({ action: 'upsert', task: n }); save('queue', queue);
   }
   if (!(bubbleTap.id === id && Date.now() - bubbleTap.at < 600)) notesOpen.delete(id); // a tap on its own bubble closes it via the click
-  setTimeout(() => { if (!typingNote()) { render(); sync(); } }, 600);
+  setTimeout(() => { if (!typingNote()) { document.body.classList.remove('typing'); render(); sync(); } }, 600);
 });
 // while typing a note, grow the box to fill the space above the keyboard, leaving the buttons visible
 const noteBoxes = () => document.querySelectorAll('textarea[name=notes]');
@@ -406,9 +407,21 @@ const fitNote = ta => {
 const activeNote = () => document.activeElement?.matches?.('textarea[name=notes]') ? document.activeElement : null;
 document.addEventListener('focusin', e => {
   if (e.target.name === 'notes') { e.target.scrollIntoView({ block: 'start' }); fitNote(e.target); setTimeout(refit, 350); setTimeout(refit, 800); }
-  else { noteBoxes().forEach(n => n.style.height = ''); if (e.target.matches?.('.qnote')) e.target.scrollIntoView({ block: 'center' }); }
+  else { noteBoxes().forEach(n => n.style.height = ''); if (e.target.matches?.('.qnote')) { document.body.classList.add('typing'); showQnote(e.target); setTimeout(refit, 350); setTimeout(refit, 800); } }
 });
-const refit = () => { const n = activeNote(); if (n) { n.scrollIntoView({ block: 'start' }); fitNote(n); } };
+// keep the quick-note box and its done button above the keyboard; refits as the keyboard slides up
+const showQnote = ta => {
+  const vv = window.visualViewport, done = ta.nextElementSibling; if (!vv) return;
+  const top = ta.getBoundingClientRect().top, bottom = (done || ta).getBoundingClientRect().bottom;
+  const lo = vv.offsetTop + 64, hi = vv.offsetTop + vv.height - 12;
+  if (bottom - top > hi - lo || top < lo) window.scrollBy(0, top - lo); // taller than the screen, or hidden at the top: start at the top
+  else if (bottom > hi) window.scrollBy(0, bottom - hi);
+};
+const refit = () => {
+  const a = document.activeElement;
+  if (a?.matches?.('.qnote')) showQnote(a);
+  else { const n = activeNote(); if (n) { n.scrollIntoView({ block: 'start' }); fitNote(n); } }
+};
 window.visualViewport?.addEventListener('resize', refit);
 setInterval(() => { if (!document.hidden && !editing && !typingNote()) sync(); }, 30000);
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
