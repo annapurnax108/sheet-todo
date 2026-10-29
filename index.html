@@ -57,8 +57,11 @@ body, button, select, input, textarea { text-transform: lowercase; }
   .tchip { display:inline-block; margin-left:6px; padding:0 7px; border-radius:999px; font-size:11px; line-height:18px; vertical-align:middle; white-space:nowrap; cursor:pointer; background:hsl(var(--h) 70% 90%); color:hsl(var(--h) 60% 28%); }
   @media (prefers-color-scheme: dark) { .tchip { background:hsl(var(--h) 35% 26%); color:hsl(var(--h) 70% 82%); } }
   /* 16px so iOS doesn't zoom the page on tap, scaled to look like the 13px buttons */
-  .filters select#tagSel { flex:1.5 1 0; min-width:0; font-size:16px; zoom:.8125; padding:7px 6px; text-align:center; } .filters select#tagSel.on { background:var(--acc); color:#fff; border-color:var(--acc); }
-  .tagchip { position:absolute; inset:0; width:100%; height:100%; opacity:0; font-size:16px; cursor:pointer; }
+  button.wchip { background:none; border:none; padding:0; font:inherit; color:inherit; }
+  #tagBtn { flex:1.5 1 0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #tagDlg { padding:12px; } .tdhead { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; } .tdhead button { padding:2px 10px; } #tagQ { width:100%; font-size:16px; margin-bottom:8px; }
+  #tagList { max-height:60vh; overflow-y:auto; } .trow { display:grid; grid-template-columns:auto 1fr auto; gap:2px 8px; align-items:center; padding:8px; border-radius:8px; cursor:pointer; } .trow.cur { background:var(--edit-bg); }
+  .trow .tdot { width:10px; height:10px; border-radius:50%; background:var(--mut); } .trow .tdot.all { background:var(--line); } .trow .tcnt { font-size:13px; color:var(--mut); } .trow .tprog { grid-column:2 / 4; margin-top:0; height:4px; }
   .tstages { display:grid; grid-template-columns:repeat(5,1fr); gap:4px; text-align:center; margin-top:10px; }
   .tbars { display:flex; align-items:flex-end; gap:4px; height:30px; margin-top:10px; } .tbars i { flex:1; background:var(--line); border-radius:3px; } .tbars i.today { background:var(--acc); }
   .wchip { position:relative; text-decoration:underline dotted; text-underline-offset:3px; cursor:pointer; }
@@ -144,6 +147,12 @@ body, button, select, input, textarea { text-transform: lowercase; }
   <div class="filters" id="filters"></div>
   <div id="list"></div>
 </main>
+
+<dialog id="tagDlg">
+  <div class="tdhead"><b>pick a tag</b><button data-x aria-label="close">✕</button></div>
+  <input id="tagQ" placeholder="search tags" autocomplete="off" autocapitalize="off" hidden>
+  <div id="tagList"></div>
+</dialog>
 
 <dialog id="dlg">
   <form method="dialog" id="cfgForm">
@@ -511,10 +520,27 @@ function todayHtml() {
   return `<div class="wins"><div class="wtop"><span class="wcount tcount">${n}</span><span class="wlabel">${isToday && !todayWeek ? 'to do' : 'due'} ${chip}</span>${isToday && overdue ? `<span class="wyest bad">${overdue} overdue</span>` : ''}</div>`
     + `<div class="tmid"><span class="wcheer">${esc(coach)}</span>${seg}</div>${prog}<div class="wweek tweek">${strip}</div>${goalRows}${todayDay ? '<div class="wback tback" data-a="todayback">← back to today</div>' : ''}</div>`;
 }
+// open / done / total for one tag (an open weekly goal counts as open, its done sessions and missed rows are left out)
+function tagStats(g) {
+  const pool = tasks.filter(t => tagsOf(t).includes(g) && (!isGoal(t.repeat) || isOpen(t))), open = pool.filter(isOpen).length, done = pool.filter(t => t.status === 'done').length;
+  return { open, done, total: open + done };
+}
+// the tag picker sheet: one row per tag with a colour dot, progress bar and counts, busiest first
+function tagSheetHtml(q = '') {
+  const rows = allTags().map(([g]) => ({ g, ...tagStats(g) })).sort((a, b) => b.open - a.open || a.g.localeCompare(b.g)).filter(r => !q || r.g.includes(q.toLowerCase().replace(/^#/, '')));
+  const all = allTags().length ? tasks.filter(t => isOpen(t) && tagsOf(t).length).length : 0;
+  return `<div class="trow${tagFilter ? '' : ' cur'}" data-g=""><i class="tdot all"></i><span class="tname">all tags</span><span class="tcnt">${all} open</span></div>`
+    + rows.map(r => `<div class="trow${r.g === tagFilter ? ' cur' : ''}" data-g="${esc(r.g)}"><i class="tdot" style="background:hsl(${tagHue(r.g)} 55% 55%)"></i><span class="tname">#${esc(r.g)}</span><span class="tcnt">${r.open} open · ${r.done}/${r.total}</span><div class="tprog"><i style="width:${r.total ? Math.round(100 * r.done / r.total) : 0}%"></i></div></div>`).join('')
+    + (q && !rows.length ? '<div class="wnote" style="padding:8px">no tag matches</div>' : '');
+}
+function openTagSheet() {
+  const q = $('#tagQ'); q.value = ''; q.hidden = allTags().length <= 8;
+  $('#tagList').innerHTML = tagSheetHtml(); $('#tagDlg').showModal();
+}
 // summary card for the selected tag: open count with a tag switcher, coach line, progress, tappable stage cells and the last 7 days of finished tasks
 function tagHtml() {
   const td = today(), mine = tasks.filter(matchesTag), pool = mine.filter(t => !isGoal(t.repeat) || isOpen(t));
-  const open = pool.filter(isOpen), done = pool.filter(t => t.status === 'done').length, total = open.length + done;
+  const open = pool.filter(isOpen), { done, total } = tagStats(tagFilter);
   const count = st => open.filter(t => t.status === st).length;
   const over = open.filter(t => !isGoal(t.repeat) && t.due && t.due < td).length, nodate = open.filter(t => !isGoal(t.repeat) && !t.due).length, doing = count('doing'), todo = count('todo');
   const last = mine.filter(t => t.status === 'done' && t.completed_at).map(t => t.completed_at).sort().pop();
@@ -522,7 +548,7 @@ function tagHtml() {
   const lastTxt = ago < 0 ? 'Nothing finished yet.' : ' Last finished ' + (ago <= 0 ? 'today' : ago === 1 ? 'yesterday' : ago + ' days ago') + '.';
   const coach = over ? `${over} overdue. Start with the oldest.` : open.length ? [doing && `${doing} doing`, todo && `${todo} todo`].filter(Boolean).join(', ') + '.' : total ? 'All done. Nice.' : 'No tasks yet.';
   const days = Array.from({ length: 7 }, (_, i) => addPeriod(td, 'daily', i - 6)), per = days.map(d => mine.filter(t => t.status === 'done' && t.completed_at === d).length), max = Math.max(1, ...per);
-  const chip = `<label class="wchip"><span>#${esc(tagFilter)} ▾</span><select class="tagchip" aria-label="switch tag"><option value="">all tags</option>${allTags().map(([g, n]) => `<option value="${esc(g)}"${g === tagFilter ? ' selected' : ''}>${esc(g)} (${n})</option>`).join('')}</select></label>`;
+  const chip = `<button class="wchip" data-a="tagpicker">#${esc(tagFilter)} ▾</button>`;
   const cell = (st, label, n) => `<div class="wday${filter === st ? ' sel' : ''}" data-a="tagstage" data-s="${st}">${label}<b>${n}</b></div>`;
   return `<div class="wins tagcard"><div class="wtop"><span class="wcount tcount">${open.length}</span><span class="wlabel">open ${chip}</span>${over ? `<span class="wyest bad">${over} overdue</span>` : ''}</div>`
     + `<div class="wcheer">${esc(coach)}${esc(lastTxt)}</div>`
@@ -533,7 +559,7 @@ function tagHtml() {
 function render() {
   const fbtn = f => `<button data-f="${f}" class="${f === filter ? 'on' : ''}"${f === 'Repeat' ? ' title="repeating" aria-label="repeating"' : ''}>${FLABEL[f] || f}</button>`;
   if (tagFilter && !allTags().some(([g]) => g === tagFilter)) tagFilter = '';
-  const tagSel = allTags().length ? `<select id="tagSel" class="${tagFilter ? 'on' : ''}" aria-label="filter by tag"><option value="">all tags</option>${allTags().map(([g, n]) => `<option value="${esc(g)}"${g === tagFilter ? ' selected' : ''}>${esc(g)} (${n})</option>`).join('')}</select>` : '';
+  const tagSel = allTags().length ? `<button id="tagBtn" data-tagsheet class="${tagFilter ? 'on' : ''}" aria-label="filter by tag">#${esc(tagFilter)}</button>` : '';
   $('#filters').innerHTML = `<div class="frow">${MAIN.map(fbtn).join('')}${tagSel}<button data-more aria-label="more filters" class="${MORE.includes(filter) ? 'on' : ''}">${MORE.includes(filter) ? FLABEL[filter] || filter : '⋯'}</button></div>`
     + (moreOpen ? `<div class="frow">${MORE.map(fbtn).join('')}</div>` : '');
   const shown = tasks.filter(t => matchesTag(t) && (query ? ((t.task || '') + ' ' + (t.notes || '')).toLowerCase().includes(query) : filter === 'Wins' ? t.status === 'done' && t.completed_at === (winsDay || today()) && !isGoal(t.repeat) : filter === 'All' ? true : filter === 'Open' ? isOpen(t) : filter === 'Today' ? todayPick(t) : filter === 'Repeat' ? isOpen(t) && t.repeat : t.status === filter))
@@ -596,7 +622,6 @@ const showTagBox = (sel, on) => { const box = sel.parentNode.querySelector('[nam
 const commitNewTag = input => { const box = input.closest('.tagpick'), tag = normTag(input.value), cur = pickedOf(box); renderPick(box, tag && !cur.includes(tag) ? [...cur, tag] : cur); };
 document.addEventListener('change', e => {
   if (e.target.name === 'tag') { const box = e.target.closest('.tagpick'); if (e.target.value === '__new') showTagBox(e.target, true); else if (e.target.value) renderPick(box, [...pickedOf(box), e.target.value]); }
-  if (e.target.id === 'tagSel' || e.target.classList?.contains('tagchip')) { tagFilter = e.target.value; render(); fillAddTags(true); }
 });
 // typing "#" in a task title suggests the existing tags (tap one to complete it), so one project keeps one spelling
 const TAG_AT_CARET = /(^|\s)#([\p{L}\p{N}_-]*)$/u;
@@ -656,7 +681,8 @@ document.addEventListener('change', e => {
 addForm.addEventListener('reset', () => setTimeout(() => syncEvery(addEl('repeat'))));
 $('#filters').addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
-  if ('more' in b.dataset) { moreOpen = !moreOpen; render(); }
+  if ('tagsheet' in b.dataset) openTagSheet();
+  else if ('more' in b.dataset) { moreOpen = !moreOpen; render(); }
   else if (b.dataset.f) setFilter(b.dataset.f);
 });
 function setFilter(f) { filter = f; winsDay = null; winsScroll = null; todayDay = null; todayWeek = false; todayScroll = null; moreOpen = false; setStatusDefault(); setDueDefault(); render(); }
@@ -689,6 +715,7 @@ $('#list').addEventListener('click', e => {
   if (a === 'todayday') { const d = e.target.closest('[data-day]').dataset.day; if (e.target.closest('.dayhead')) todayWeek = false; todayDay = d === today() ? null : d; if (!todayDay) todayScroll = null; setDueDefault(); render(); return; }
   if (a === 'todayback') { todayDay = null; todayScroll = null; setDueDefault(); render(); return; }
   if (a === 'todayview') { todayWeek = e.target.closest('[data-v]').dataset.v === 'week'; render(); return; }
+  if (a === 'tagpicker') { openTagSheet(); return; }
   if (a === 'tagstage') { setFilter(e.target.closest('[data-s]').dataset.s); return; }
   if (a === 'winback') { winsDay = null; winsScroll = null; render(); return; } // back to today also brings the strip to this week
   if (!a || !item) return;
@@ -724,6 +751,12 @@ $('#qx').onclick = () => toggleSearch(false);
 $('#q').addEventListener('input', e => { query = e.target.value.trim().toLowerCase(); render(); });
 $('#q').addEventListener('keydown', e => { if (e.key === 'Escape') toggleSearch(false); });
 $('#refresh').onclick = sync;
+$('#tagDlg').addEventListener('click', e => {
+  const row = e.target.closest('[data-g]');
+  if (row) { tagFilter = row.dataset.g; $('#tagDlg').close(); render(); fillAddTags(true); }
+  else if (e.target.closest('[data-x]') || e.target === $('#tagDlg')) $('#tagDlg').close(); // ✕ or a tap on the backdrop
+});
+$('#tagQ').addEventListener('input', e => { $('#tagList').innerHTML = tagSheetHtml(e.target.value.trim()); });
 $('#cfg').onclick = () => { const f = $('#cfgForm'); f.url.value = cfg.url || ''; f.token.value = cfg.token || ''; $('#dlg').showModal(); };
 $('#dlg').addEventListener('close', () => {
   if ($('#dlg').returnValue !== 'ok') return;
