@@ -22,11 +22,11 @@ body, button, select, input, textarea { text-transform: lowercase; }
   button { cursor:pointer; } button.primary { background:var(--acc); color:#fff; border-color:var(--acc); }
   #status { flex:1; min-width:0; text-align:center; color:var(--mut); font-size:12px; line-height:1.2; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
   textarea[name=notes] { min-height:7.5em; resize:vertical; scroll-margin-top:64px; }
-  form#add { display:grid; grid-template-columns:auto minmax(0,1fr); gap:8px; margin-bottom:12px; } form#add input[name=due] { min-width:9.5em; } form#add > select[name=status] { display:none; }
+  form#add { display:grid; grid-template-columns:auto minmax(0,1fr); gap:8px; margin-bottom:12px; } form#add .duebox { min-width:9.5em; } form#add > select[name=status] { display:none; }
   /* tapping the task box opens the card, laid out like an existing task's edit card: title, then date + status, then tag, repeat, notes */
   form#add:has(#more:not([hidden])) { grid-template-columns:minmax(0,1fr) minmax(0,1fr); }
   form#add:has(#more:not([hidden])) input[name=task] { order:1; grid-column:1/-1; } form#add:has(#more:not([hidden])) #tagSug { order:2; }
-  form#add:has(#more:not([hidden])) input[name=due] { order:3; min-width:0; width:100%; } form#add:has(#more:not([hidden])) > select[name=status] { display:block; order:4; min-width:0; width:100%; }
+  form#add:has(#more:not([hidden])) .duebox { order:3; min-width:0; width:100%; } form#add:has(#more:not([hidden])) > select[name=status] { display:block; order:4; min-width:0; width:100%; }
   form#add:has(#more:not([hidden])) #more { order:5; }
   #more { grid-column:1/-1; margin-top:0; } #more[hidden] { display:none; }
   #more .btns { display:grid; grid-template-columns:1fr 1fr; gap:8px; } #more .btns button { padding:12px; }
@@ -60,6 +60,9 @@ body, button, select, input, textarea { text-transform: lowercase; }
   .trow { display:grid; grid-template-columns:auto 1fr auto; gap:2px 8px; align-items:center; padding:8px; border-radius:8px; cursor:pointer; } .trow:active { background:var(--edit-bg); }
   .trow .tdot { width:10px; height:10px; border-radius:50%; background:var(--mut); } .trow .tdot.all { background:var(--line); } .trow .tcnt { font-size:13px; color:var(--mut); } .trow .tprog { grid-column:2 / 4; margin-top:0; height:4px; }
   .tstages { display:grid; grid-template-columns:repeat(5,1fr); gap:4px; text-align:center; margin-top:10px; }
+  .duebox { position:relative; display:block; } .duebox input { width:100%; min-width:0; } .nodue { position:absolute; right:3px; top:50%; transform:translateY(-50%); border:none; background:none; padding:2px 7px; font-size:13px; color:var(--mut); }
+  @media (hover:hover) { .nodue { right:30px; } } /* desktop browsers draw a calendar icon at the right edge */
+  .duebox.empty input { color:transparent; } .duebox.empty::after { content:'no date'; position:absolute; left:11px; top:50%; transform:translateY(-50%); color:var(--mut); pointer-events:none; }
   .tstrip { display:flex; overflow-x:auto; scroll-snap-type:x mandatory; scrollbar-width:none; margin-top:6px; } .tstrip::-webkit-scrollbar { display:none; } .tagname { font-weight:600; }
   .filters button[data-f="#"] { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .wchip { position:relative; text-decoration:underline dotted; text-underline-offset:3px; cursor:pointer; }
@@ -131,7 +134,7 @@ body, button, select, input, textarea { text-transform: lowercase; }
   <header><h1>To-Do</h1><div id="status"></div><button id="searchBtn" title="Search" aria-label="Search">🔍</button><button id="refresh" title="Sync now">⟳</button><button id="cfg" title="Settings">⚙</button></header>
   <div id="searchRow" hidden><input id="q" type="search" placeholder="search all tasks…" autocomplete="off"><button id="qx" aria-label="Close search">✕</button></div>
   <form id="add">
-    <input name="due" type="date" title="Due date">
+    <span class="duebox empty"><input name="due" type="date" title="Due date"><button type="button" class="nodue" aria-label="no due date" title="No due date" hidden>✕</button></span>
     <input name="task" placeholder="New task…" required autocomplete="off">
     <div id="tagSug" class="tagsug" hidden></div>
     <select name="status"></select>
@@ -374,7 +377,12 @@ function seriesStats(series) {
 // completed_at: keep an existing date if already Done, set today on becoming Done, clear on reopening
 const withStatus = (t, status) => ({ ...t, status, completed_at: status !== 'done' ? '' : (t.status === 'done' && t.completed_at) || today() });
 // pre-fill the add form's due date with today (and roll it over if the app stays open past midnight)
-function setDueDefault() { const i = $('#add').due, d = (filter === 'Today' && todayDay) || today(); if (!i.value || i.value === i.defaultValue) i.value = d; i.defaultValue = d; }
+// a tag's dashboard starts new tasks without a due date (project features); the ✕ in the date field clears it anywhere, and stays cleared
+let dueCleared = false;
+const syncDue = box => { const i = box.querySelector('input'); box.classList.toggle('empty', !i.value); box.querySelector('.nodue').hidden = !i.value; };
+function setDueDefault() { const i = $('#add').due, d = filter === '#' ? '' : (filter === 'Today' && todayDay) || today(); if (!dueCleared && (!i.value || i.value === i.defaultValue)) i.value = d; i.defaultValue = d; syncDue(i.closest('.duebox')); }
+document.addEventListener('click', e => { const b = e.target.closest?.('.nodue'); if (!b) return; const box = b.closest('.duebox'); box.querySelector('input').value = ''; if (box.closest('#add')) dueCleared = true; syncDue(box); });
+document.addEventListener('input', e => { if (e.target.name === 'due' && e.target.closest?.('.duebox')) { if (e.target.closest('#add')) dueCleared = false; syncDue(e.target.closest('.duebox')); } });
 
 // how long one request may take: starts at 30s, doubles (up to 2 min) after a timeout so a slow sheet can still get through, drops back after a success
 let callTimeout = 30000, lastTimeout = 30;
@@ -603,7 +611,7 @@ function render() {
       ${!ed && notesOpen.has(t.id) ? `<textarea class="qnote" name="qnote" rows="3" placeholder="Add a note…">${esc(t.notes)}</textarea><div class="tagsug" hidden></div><button class="qdone" data-a="notedone">done</button>` : ''}
       ${!ed && !goal && isOpen(t) && dueOpen === t.id ? quickDueHtml(t) : ''}
       ${ed ? `<div class="edit"><input name="task" value="${esc(splitTags(t.task).title || t.task)}"><div class="tagsug" hidden></div>
-        <div class="two tagged"><input name="due" type="date" value="${esc(t.due)}">
+        <div class="two tagged"><span class="duebox${t.due ? '' : ' empty'}"><input name="due" type="date" value="${esc(t.due)}"><button type="button" class="nodue" aria-label="no due date" title="No due date"${t.due ? '' : ' hidden'}>✕</button></span>
         <select name="status">${STATUSES.map(s => `<option ${s === t.status ? 'selected' : ''}>${s}</option>`).join('')}</select>
         ${tagPickHtml(splitTags(t.task).tags, noteTags(t.notes).filter(g => !splitTags(t.task).tags.includes(g)))}</div>
         <div class="three"><select name="repeat">${REPEATS.map(r => `<option value="${r}" ${r === parseRepeat(t.repeat).unit || (!r && !t.repeat) ? 'selected' : ''}>${repeatOpt(r)}</option>`).join('')}</select>
@@ -676,7 +684,7 @@ addForm.addEventListener('submit', e => {
   const t = { id: uuid(), task: composeNew(addEl('task').value, pickedOf(addPick())), status: 'todo', due: goal ? weekEnd(today()) : addEl('due').value, notes: addEl('notes').value, completed_at: '',
     repeat, repeat_from: repeat && !goal ? addEl('repeat_from').value : '', series: repeat ? uuid() : '', updated_at: new Date().toISOString() };
   if (goal) upsert(t); else if (repeat && status === 'done') advance(t, 'done', false); else { const row = withStatus(t, status); if (status === 'done' && filter === 'Wins' && winsDay) row.completed_at = winsDay; upsert(row); } // added while a past day is selected: done on that day
-  addForm.reset(); setDueDefault(); setStatusDefault(); $('#more').hidden = true; focusTask();
+  addForm.reset(); dueCleared = false; setDueDefault(); setStatusDefault(); $('#more').hidden = true; focusTask();
 });
 // the "every N" box only applies while a repeat unit is chosen
 const syncEvery = sel => { const n = sel.form ? sel.form.elements.every : sel.parentNode.querySelector('[name=every]'); n.disabled = !sel.value; (sel.form ? sel.form.elements.repeat_from : sel.parentNode.querySelector('[name=repeat_from]')).disabled = sel.value === 'goal'; };
@@ -699,7 +707,7 @@ $('#filters').addEventListener('click', e => {
   if ('more' in b.dataset) { moreOpen = !moreOpen; render(); }
   else if (b.dataset.f) setFilter(b.dataset.f);
 });
-function setFilter(f) { filter = f; if (f === '#') { tagFilter = ''; tagReset(); } winsDay = null; winsScroll = null; todayDay = null; todayWeek = false; todayScroll = null; moreOpen = false; setStatusDefault(); setDueDefault(); render(); }
+function setFilter(f) { filter = f; dueCleared = false; if (f === '#') { tagFilter = ''; tagReset(); } winsDay = null; winsScroll = null; todayDay = null; todayWeek = false; todayScroll = null; moreOpen = false; setStatusDefault(); setDueDefault(); render(); }
 // swipe the list sideways to step through the filters in the order they appear (left = next, right = previous)
 const FILTER_ORDER = [...MAIN, ...MORE];
 const slideList = cls => { const el = $('#list'); el.classList.remove('slideInL', 'slideInR', 'nudgeL', 'nudgeR'); void el.offsetWidth; el.classList.add(cls); el.addEventListener('animationend', () => el.classList.remove(cls), { once: true }); };
