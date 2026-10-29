@@ -61,6 +61,8 @@ body, button, select, input, textarea { text-transform: lowercase; }
   .trow .tdot { width:10px; height:10px; border-radius:50%; background:var(--mut); } .trow .tdot.all { background:var(--line); } .trow .tcnt { font-size:13px; color:var(--mut); } .trow .tprog { grid-column:2 / 4; margin-top:0; height:4px; }
   .tstages { display:grid; grid-template-columns:repeat(5,1fr); gap:4px; text-align:center; margin-top:10px; }
   .duebox { position:relative; display:block; } .duechip { width:100%; text-align:left; font-size:16px; white-space:nowrap; } .duechip.none { color:var(--mut); }
+  #undo { position:fixed; left:50%; transform:translateX(-50%); bottom:max(16px, env(safe-area-inset-bottom)); z-index:30; display:flex; align-items:center; gap:14px; padding:6px 8px 6px 16px; border-radius:12px; background:var(--fg); color:var(--bg); box-shadow:0 6px 18px rgba(0,0,0,.35); max-width:calc(100vw - 32px); animation:undoIn .18s ease-out; } #undo[hidden] { display:none; }
+  #undo button { border:0; background:none; padding:8px 10px; font-weight:700; color:var(--acc-inv); } #undo { --acc-inv:#8ab4f8; } @media (prefers-color-scheme: dark) { #undo { --acc-inv:#1a73e8; } } @keyframes undoIn { from { transform:translate(-50%, 12px); opacity:0; } to { transform:translate(-50%, 0); opacity:1; } } @media (prefers-reduced-motion: reduce) { #undo { animation:none; } }
   /* calendar pop-up, iPhone-calendar look: roomy round day buttons, accent-coloured today, text buttons, no boxes */
   #dueDlg { padding:0; width:min(92vw,340px); border:0; border-radius:18px; box-shadow:0 12px 40px rgba(0,0,0,.45); } #dueDlg::backdrop { background:rgba(0,0,0,.5); } .dcal { padding:14px 12px 8px; }
   #dueDlg button { border:0; background:none; padding:0; border-radius:50%; color:var(--fg); }
@@ -154,6 +156,8 @@ body, button, select, input, textarea { text-transform: lowercase; }
   <div class="filters" id="filters"></div>
   <div id="list"></div>
 </main>
+
+<div id="undo" hidden role="status"><span id="undoMsg"></span><button type="button" id="undoBtn">Undo</button></div>
 
 <dialog id="dueDlg"><div class="dcal">
   <div class="dhead"><button type="button" class="dnav" data-act="prev" aria-label="previous month">‹</button><button type="button" class="dtitle" id="dueTitle" data-act="home"></button><button type="button" class="dhome" id="dueHome" data-act="home">↺ today</button><button type="button" class="dnav" data-act="next" aria-label="next month">›</button></div>
@@ -502,6 +506,22 @@ function del(id) {
   tasks = tasks.filter(t => t.id !== id); save('tasks', tasks);
   queue.push({ action: 'delete', id }); save('queue', queue); render(); sync();
 }
+// undo: an action runs as usual, a copy of the tasks from just before it is kept for a few seconds, and "Undo" puts back every row the action changed, removed or created
+let undoSnap = null, undoTimer = 0;
+function hideUndo() { clearTimeout(undoTimer); undoSnap = null; $('#undo').hidden = true; }
+function withUndo(label, fn) {
+  const before = JSON.parse(JSON.stringify(tasks));
+  fn();
+  undoSnap = before; $('#undoMsg').textContent = label; $('#undo').hidden = false;
+  clearTimeout(undoTimer); undoTimer = setTimeout(hideUndo, 6000);
+}
+function undo() {
+  const before = undoSnap; if (!before) return; hideUndo();
+  const now = new Map(tasks.map(t => [t.id, t])), ids = new Set(before.map(t => t.id));
+  before.forEach(b => { const c = now.get(b.id); if (!c || JSON.stringify(c) !== JSON.stringify(b)) upsert(b); });
+  tasks.filter(t => !ids.has(t.id)).forEach(t => del(t.id));
+}
+$('#undoBtn').onclick = undo;
 
 // quick-note box is as tall as its text, so the whole note is visible
 const growNote = ta => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight + 2, innerHeight * 0.7) + 'px'; };
@@ -736,7 +756,7 @@ addForm.addEventListener('submit', e => {
   document.querySelectorAll('#add .tagsug').forEach(b => { b.hidden = true; });
   const t = { id: uuid(), task: composeNew(addEl('task').value, pickedOf(addPick())), status: 'todo', due: goal ? weekEnd(today()) : addEl('due').value, notes: addEl('notes').value, completed_at: '',
     repeat, repeat_from: repeat && !goal ? addEl('repeat_from').value : '', series: repeat ? uuid() : '', updated_at: new Date().toISOString() };
-  if (goal) upsert(t); else if (repeat && status === 'done') advance(t, 'done', false); else { const row = withStatus(t, status); if (status === 'done' && filter === 'Wins' && winsDay) row.completed_at = winsDay; upsert(row); } // added while a past day is selected: done on that day
+  withUndo('Task added', () => { if (goal) upsert(t); else if (repeat && status === 'done') advance(t, 'done', false); else { const row = withStatus(t, status); if (status === 'done' && filter === 'Wins' && winsDay) row.completed_at = winsDay; upsert(row); } }); // added while a past day is selected: done on that day
   addForm.reset(); dueCleared = false; setDueDefault(); setStatusDefault(); $('#more').hidden = true; focusTask();
 });
 // the "every N" box only applies while a repeat unit is chosen
@@ -751,7 +771,7 @@ document.addEventListener('change', e => {
   }
   if (e.target.classList?.contains('qdate') && e.target.value) { // quick reschedule: picked a date
     const t = tasks.find(x => x.id === e.target.closest('.item')?.dataset.id); if (!t) return;
-    dueOpen = null; upsert({ ...t, due: e.target.value });
+    dueOpen = null; withUndo('Due date changed', () => upsert({ ...t, due: e.target.value }));
   }
 });
 addForm.addEventListener('reset', () => setTimeout(() => syncEvery(addEl('repeat'))));
@@ -798,25 +818,25 @@ $('#list').addEventListener('click', e => {
   if (a === 'winback') { winsDay = null; winsScroll = null; render(); return; } // back to today also brings the strip to this week
   if (!a || !item) return;
   const t = tasks.find(x => x.id === item.dataset.id);
-  if (a === 'log') logSession(t);
+  if (a === 'log') withUndo('Session logged', () => logSession(t));
   else if (a === 'notedone') { document.activeElement?.blur?.(); notesOpen.delete(t.id); render(); }
   else if (a === 'due') { dueOpen = dueOpen === t.id ? null : t.id; render(); if (dueOpen) revealRow(t.id); }
-  else if (a === 'dueset') { const d = dueChoices(t)[e.target.closest('[data-d]').dataset.d]; dueOpen = null; upsert({ ...t, due: d }); }
+  else if (a === 'dueset') { const d = dueChoices(t)[e.target.closest('[data-d]').dataset.d]; dueOpen = null; withUndo('Due date changed', () => upsert({ ...t, due: d })); }
   else if (a === 'tagpick') { const g = e.target.closest('[data-tag]').dataset.tag; setFilter('#'); tagFilter = g; render(); fillAddTags(true); } // a tag chip opens that tag's dashboard
   else if (a === 'note') { dueOpen = null; const open = !notesOpen.has(t.id); open ? notesOpen.add(t.id) : notesOpen.delete(t.id); render(); if (open) liftNote(t.id, !t.notes); }
   else if (a === 'histall') { histAll.has(t.series) ? histAll.delete(t.series) : histAll.add(t.series); render(); }
   else if (a === 'hist') { histOpen.has(t.series) ? histOpen.delete(t.series) : histOpen.add(t.series); render(); }
-  else if (a === 'toggle') { if (isGoal(t.repeat)) delSession(t); else if (t.status === 'done') reopen(t); else if (t.repeat) advance(t, 'done'); else upsert(withStatus(t, 'done')); }
-  else if (a === 'skip') { editing = null; advance(t, 'missed'); }
+  else if (a === 'toggle') withUndo(isGoal(t.repeat) ? 'Session removed' : t.status === 'done' ? 'Reopened' : 'Marked done', () => { if (isGoal(t.repeat)) delSession(t); else if (t.status === 'done') reopen(t); else if (t.repeat) advance(t, 'done'); else upsert(withStatus(t, 'done')); });
+  else if (a === 'skip') { editing = null; withUndo('Skipped', () => advance(t, 'missed')); }
   else if (a === 'edit') { dueOpen = null; editing = editing === t.id ? null : t.id; notesOpen.delete(t.id); render(); liftEdit(); if (editing) [60, 300].forEach(ms => setTimeout(() => editing === t.id && liftEdit(), ms)); }
   else if (a === 'cancel') { editing = null; render(); }
-  else if (a === 'del') { if (confirm('Delete this task?')) { editing = null; endSeries(t); del(t.id); } }
+  else if (a === 'del') { if (confirm('Delete this task?')) { editing = null; withUndo('Deleted', () => { endSeries(t); del(t.id); }); } }
   else if (a === 'save') {
     const q = n => item.querySelector(`[name=${n}]`).value; editing = null;
     const repeat = fmtRepeat(q('repeat'), q('every')), status = q('status');
     const pickT = pickedOf(item.querySelector('.tagpick'));
     const edited = { ...t, task: composeEdit(q('task'), t.task, pickT) || t.task, due: isGoal(repeat) && !isGoal(t.repeat) ? weekEnd(today()) : q('due'), notes: q('notes'), repeat, repeat_from: repeat && !isGoal(repeat) ? q('repeat_from') : '', series: repeat ? t.series || uuid() : t.series };
-    if (repeat && !isGoal(repeat) && isOpen(t) && !isOpen({ status })) advance(edited, status); else upsert(withStatus(edited, status));
+    withUndo('Changes saved', () => { if (repeat && !isGoal(repeat) && isOpen(t) && !isOpen({ status })) advance(edited, status); else upsert(withStatus(edited, status)); });
   }
 });
 function toggleSearch(open) {
