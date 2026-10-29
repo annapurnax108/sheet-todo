@@ -60,9 +60,9 @@ body, button, select, input, textarea { text-transform: lowercase; }
   .trow { display:grid; grid-template-columns:auto 1fr auto; gap:2px 8px; align-items:center; padding:8px; border-radius:8px; cursor:pointer; } .trow:active { background:var(--edit-bg); }
   .trow .tdot { width:10px; height:10px; border-radius:50%; background:var(--mut); } .trow .tdot.all { background:var(--line); } .trow .tcnt { font-size:13px; color:var(--mut); } .trow .tprog { grid-column:2 / 4; margin-top:0; height:4px; }
   .tstages { display:grid; grid-template-columns:repeat(5,1fr); gap:4px; text-align:center; margin-top:10px; }
-  .duebox { position:relative; display:block; } .duebox input { width:100%; min-width:0; } .nodue { position:absolute; right:3px; top:50%; transform:translateY(-50%); border:none; background:none; padding:2px 7px; font-size:13px; color:var(--mut); }
-  @media (hover:hover) { .nodue { right:30px; } } /* desktop browsers draw a calendar icon at the right edge */
-  .duebox.empty input { color:transparent; } .duebox.empty::after { content:'no date'; position:absolute; left:11px; top:50%; transform:translateY(-50%); color:var(--mut); pointer-events:none; }
+  .duebox { position:relative; display:block; } .duechip { width:100%; text-align:left; font-size:16px; white-space:nowrap; } .duechip.none { color:var(--mut); }
+  .duemenu { position:absolute; top:100%; left:0; z-index:20; display:flex; flex-direction:column; gap:6px; margin:4px 0 0; padding:6px; background:var(--bg); border:1px solid var(--line); border-radius:10px; box-shadow:0 6px 18px rgba(0,0,0,.35); width:9.5em; } .duemenu[hidden] { display:none; }
+  .duemenu button { font-size:14px; padding:8px 10px; text-align:center; } .duemenu button.on { background:var(--acc); color:#fff; border-color:var(--acc); } .duepick { font-size:16px; padding:6px 8px; min-width:0; width:100%; }
   .tstrip { display:flex; overflow-x:auto; scroll-snap-type:x mandatory; scrollbar-width:none; margin-top:6px; } .tstrip::-webkit-scrollbar { display:none; } .tagname { font-weight:600; }
   .filters button[data-f="#"] { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .wchip { position:relative; text-decoration:underline dotted; text-underline-offset:3px; cursor:pointer; }
@@ -134,7 +134,7 @@ body, button, select, input, textarea { text-transform: lowercase; }
   <header><h1>To-Do</h1><div id="status"></div><button id="searchBtn" title="Search" aria-label="Search">🔍</button><button id="refresh" title="Sync now">⟳</button><button id="cfg" title="Settings">⚙</button></header>
   <div id="searchRow" hidden><input id="q" type="search" placeholder="search all tasks…" autocomplete="off"><button id="qx" aria-label="Close search">✕</button></div>
   <form id="add">
-    <span class="duebox empty"><input name="due" type="date" title="Due date"><button type="button" class="nodue" aria-label="no due date" title="No due date" hidden>✕</button></span>
+    <span id="addDue"></span>
     <input name="task" placeholder="New task…" required autocomplete="off">
     <div id="tagSug" class="tagsug" hidden></div>
     <select name="status"></select>
@@ -375,12 +375,26 @@ function seriesStats(series) {
 // completed_at: keep an existing date if already Done, set today on becoming Done, clear on reopening
 const withStatus = (t, status) => ({ ...t, status, completed_at: status !== 'done' ? '' : (t.status === 'done' && t.completed_at) || today() });
 // pre-fill the add form's due date with today (and roll it over if the app stays open past midnight)
-// a tag's dashboard starts new tasks without a due date (project features); the ✕ in the date field clears it anywhere, and stays cleared
+// the due date defaults to today (or the selected day); choosing 'no date' in the date menu stays chosen until the task is added or the tab changes
 let dueCleared = false;
-const syncDue = box => { const i = box.querySelector('input'); box.classList.toggle('empty', !i.value); box.querySelector('.nodue').hidden = !i.value; };
-function setDueDefault() { const i = $('#add').due, d = filter === '#' ? '' : (filter === 'Today' && todayDay) || today(); if (!dueCleared && (!i.value || i.value === i.defaultValue)) i.value = d; i.defaultValue = d; syncDue(i.closest('.duebox')); }
-document.addEventListener('click', e => { const b = e.target.closest?.('.nodue'); if (!b) return; const box = b.closest('.duebox'); box.querySelector('input').value = ''; if (box.closest('#add')) dueCleared = true; syncDue(box); });
-document.addEventListener('input', e => { if (e.target.name === 'due' && e.target.closest?.('.duebox')) { if (e.target.closest('#add')) dueCleared = false; syncDue(e.target.closest('.duebox')); } });
+// the due date in the task forms: a chip showing the date that opens a small menu (today, tomorrow, +1 week, no date, any date); the real date input stays hidden and holds the value
+const dueBoxHtml = v => `<span class="duebox"><button type="button" class="duechip${v ? '' : ' none'}">${v ? esc(showDate(v)) : 'no date'} ▾</button><input name="due" type="date" value="${esc(v)}" hidden><div class="duemenu" hidden><button type="button" data-d="today">today</button><button type="button" data-d="tomorrow">tomorrow</button><button type="button" data-d="week">+1 week</button><button type="button" data-d="none">no date</button><input class="duepick" type="date" aria-label="pick a date"></div></span>`;
+const syncDue = box => {
+  const v = box.querySelector('input[name=due]').value, c = dueChoices({}), chip = box.querySelector('.duechip');
+  chip.textContent = (v ? showDate(v) : 'no date') + ' ▾'; chip.classList.toggle('none', !v);
+  box.querySelectorAll('.duemenu [data-d]').forEach(b => b.classList.toggle('on', b.dataset.d === 'none' ? !v : v === c[b.dataset.d]));
+};
+const closeDueMenus = () => document.querySelectorAll('.duemenu:not([hidden])').forEach(m => { m.hidden = true; });
+function setDue(box, v) { box.querySelector('input[name=due]').value = v; if (box.closest('#add')) dueCleared = v === ''; syncDue(box); closeDueMenus(); }
+function setDueDefault() { const i = $('#add').due, d = (filter === 'Today' && todayDay) || today(); if (!dueCleared && (!i.value || i.value === i.defaultValue)) i.value = d; i.defaultValue = d; syncDue(i.closest('.duebox')); }
+document.addEventListener('click', e => {
+  const chip = e.target.closest?.('.duechip'), pick = e.target.closest?.('.duemenu [data-d]');
+  if (chip) { const m = chip.parentNode.querySelector('.duemenu'), was = !m.hidden; closeDueMenus(); if (!was) { syncDue(chip.parentNode); m.hidden = false; } }
+  else if (pick) setDue(pick.closest('.duebox'), pick.dataset.d === 'none' ? '' : dueChoices({})[pick.dataset.d]);
+  else if (!e.target.closest?.('.duemenu')) closeDueMenus();
+});
+document.addEventListener('change', e => { if (e.target.classList?.contains('duepick') && e.target.value) setDue(e.target.closest('.duebox'), e.target.value); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDueMenus(); });
 
 // how long one request may take: starts at 30s, doubles (up to 2 min) after a timeout so a slow sheet can still get through, drops back after a success
 let callTimeout = 30000, lastTimeout = 30;
@@ -609,7 +623,7 @@ function render() {
       ${!ed && notesOpen.has(t.id) ? `<textarea class="qnote" name="qnote" rows="3" placeholder="Add a note…">${esc(t.notes)}</textarea><div class="tagsug" hidden></div><button class="qdone" data-a="notedone">done</button>` : ''}
       ${!ed && !goal && isOpen(t) && dueOpen === t.id ? quickDueHtml(t) : ''}
       ${ed ? `<div class="edit"><input name="task" value="${esc(splitTags(t.task).title || t.task)}"><div class="tagsug" hidden></div>
-        <div class="two tagged"><span class="duebox${t.due ? '' : ' empty'}"><input name="due" type="date" value="${esc(t.due)}"><button type="button" class="nodue" aria-label="no due date" title="No due date"${t.due ? '' : ' hidden'}>✕</button></span>
+        <div class="two tagged">${dueBoxHtml(t.due)}
         <select name="status">${STATUSES.map(s => `<option ${s === t.status ? 'selected' : ''}>${s}</option>`).join('')}</select>
         ${tagPickHtml(splitTags(t.task).tags, noteTags(t.notes).filter(g => !splitTags(t.task).tags.includes(g)))}</div>
         <div class="three"><select name="repeat">${REPEATS.map(r => `<option value="${r}" ${r === parseRepeat(t.repeat).unit || (!r && !t.repeat) ? 'selected' : ''}>${repeatOpt(r)}</option>`).join('')}</select>
@@ -631,6 +645,7 @@ function render() {
 }
 
 // the add form's extra fields (status, repeat, notes) open when the task box is tapped
+$('#addDue').outerHTML = dueBoxHtml('');
 const addForm = $('#add'), addEl = n => addForm.elements[n];
 addEl('status').innerHTML = ['todo', 'doing', 'done'].map(s => `<option>${s}</option>`).join('');
 addEl('repeat').innerHTML = REPEATS.map(r => `<option value="${r}">${repeatOpt(r)}</option>`).join('');
