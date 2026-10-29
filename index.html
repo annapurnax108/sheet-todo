@@ -13,7 +13,7 @@
   * { box-sizing: border-box; }
 body, button, select, input, textarea { text-transform: lowercase; }
   body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.4 system-ui,sans-serif; }
-  main { max-width:720px; margin:0 auto; padding:16px; }
+  main { max-width:720px; margin:0 auto; padding:16px; min-height:100vh; min-height:100dvh; } /* fills the screen, so a swipe on an empty tab still lands on it */
   header { display:flex; align-items:center; gap:8px; margin-bottom:12px; }
   h1 { font-size:20px; margin:0; }
   #searchRow { display:flex; gap:8px; margin-bottom:12px; } #searchRow[hidden] { display:none; } #q { flex:1; min-width:0; }
