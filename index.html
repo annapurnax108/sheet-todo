@@ -398,14 +398,14 @@ document.addEventListener('change', e => { if (e.target.classList?.contains('due
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDueMenus(); });
 
 // how long one request may take: starts at 30s, doubles (up to 2 min) after a timeout so a slow sheet can still get through, drops back after a success
-let callTimeout = 30000, lastTimeout = 30;
+let callTimeout = 30000, lastTimeout = 30, lastReply = {}, batchOK = true; // batchOK drops to false if the sheet's script predates the batch action
 async function call(body) {
   const ac = new AbortController(), timer = setTimeout(() => ac.abort(), callTimeout); // a request cut off by iOS must not block sync forever
   try {
     const r = await fetch(cfg.url, { method: 'POST', body: JSON.stringify({ token: cfg.token, ...body }), signal: ac.signal }); // text/plain => no CORS preflight
     const j = await r.json();
     if (!j.ok) throw new Error(j.error || 'request failed');
-    return j.tasks;
+    lastReply = j; return j.tasks;
   } catch (e) { if (e.name === 'AbortError') { lastTimeout = callTimeout / 1000; callTimeout = Math.min(callTimeout * 2, 120000); throw new Error('timed out'); } throw e; }
   finally { clearTimeout(timer); }
 }
@@ -419,6 +419,7 @@ function compactQueue() {
 
 // a failed pass retries by itself (5s, 10s, 20s, 40s, then every minute); edits made during a pass trigger another pass
 let retryTimer = 0, retryWait = 5000;
+const BATCH = 25; // most changes per request, so one call stays well inside the script's time limit
 const NETERR = /load failed|failed to fetch|networkerror|timed out|network connection/i;
 async function sync() {
   if (!cfg.url || !cfg.token) { setStatus('Tap ⚙ to connect your sheet.'); return; }
@@ -429,6 +430,13 @@ async function sync() {
     const total = queue.length; let sent = 0, server;
     setStatus('Syncing…');
     while (queue.length) {
+      if (batchOK && queue.length > 1) { // many waiting changes travel in one request; an older script ignores the action and answers without `applied`, so nothing is dropped
+        const chunk = queue.slice(0, BATCH);
+        setStatus(`Syncing ${sent + chunk.length} of ${total}…`);
+        server = await call({ action: 'batch', ops: chunk });
+        if (lastReply.applied === chunk.length) { queue.splice(0, chunk.length); save('queue', queue); sent += chunk.length; callTimeout = Math.max(30000, callTimeout / 2); continue; }
+        batchOK = false; // not understood: fall back to one change per request
+      }
       if (total > 1) setStatus(`Syncing ${Math.min(++sent, total)} of ${total}…`);
       server = await call(queue[0]); queue.shift(); save('queue', queue); callTimeout = Math.max(30000, callTimeout / 2);
     }
