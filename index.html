@@ -61,11 +61,14 @@ body, button, select, input, textarea { text-transform: lowercase; }
   .trow .tdot { width:10px; height:10px; border-radius:50%; background:var(--mut); } .trow .tdot.all { background:var(--line); } .trow .tcnt { font-size:13px; color:var(--mut); } .trow .tprog { grid-column:2 / 4; margin-top:0; height:4px; }
   .tstages { display:grid; grid-template-columns:repeat(5,1fr); gap:4px; text-align:center; margin-top:10px; }
   .duebox { position:relative; display:block; } .duechip { width:100%; text-align:left; font-size:16px; white-space:nowrap; } .duechip.none { color:var(--mut); }
-  #dueDlg { padding:0; width:min(92vw,340px); } #dueDlg::backdrop { background:rgba(0,0,0,.55); } .dcal { padding:12px; }
-  .dhead { display:flex; align-items:center; gap:6px; margin-bottom:8px; } .dhead button { min-height:40px; } .dhead .dtitle { flex:1; border:0; background:none; font-size:16px; font-weight:600; } .dhead .dhome { font-size:13px; color:var(--acc); } .dhead .dhome[hidden] { display:none; }
-  .dgrid { display:grid; grid-template-columns:repeat(7,1fr); gap:4px; text-align:center; } .dgrid.dwk { font-size:12px; color:var(--mut); margin-bottom:2px; }
-  .dgrid button { min-height:40px; padding:0; font-size:15px; } .dgrid button.other { color:var(--mut); border-color:transparent; background:none; } .dgrid button.today { border-color:var(--acc); } .dgrid button.sel { background:var(--acc); color:#fff; border-color:var(--acc); }
-  .dfoot { display:flex; justify-content:space-between; gap:8px; margin-top:10px; }
+  /* calendar pop-up, iPhone-calendar look: roomy round day buttons, accent-coloured today, text buttons, no boxes */
+  #dueDlg { padding:0; width:min(92vw,340px); border:0; border-radius:18px; box-shadow:0 12px 40px rgba(0,0,0,.45); } #dueDlg::backdrop { background:rgba(0,0,0,.5); } .dcal { padding:14px 12px 8px; }
+  #dueDlg button { border:0; background:none; padding:0; border-radius:50%; color:var(--fg); }
+  #dueDlg .dhead { display:flex; align-items:center; gap:2px; margin:0 4px 10px; } #dueDlg .dhead .dtitle { flex:1; min-height:36px; text-align:left; border-radius:8px; font-size:20px; font-weight:700; text-transform:capitalize; } #dueDlg .dhead .dtitle .yr { font-weight:400; color:var(--mut); }
+  #dueDlg .dhead .dnav { width:36px; height:36px; font-size:26px; line-height:1; color:var(--acc); } #dueDlg .dhead .dhome { height:30px; padding:0 10px; margin-right:2px; border-radius:15px; font-size:13px; color:var(--acc); background:color-mix(in srgb, var(--acc) 15%, transparent); } #dueDlg .dhead .dhome[hidden] { display:none; }
+  #dueDlg .dgrid { display:grid; grid-template-columns:repeat(7,1fr); row-gap:2px; text-align:center; } #dueDlg .dgrid.dwk { font-size:12px; font-weight:600; color:var(--mut); margin-bottom:4px; }
+  #dueDlg .dgrid button { aspect-ratio:1; max-height:44px; width:100%; font-size:18px; } #dueDlg .dgrid button.other { color:var(--mut); opacity:.45; } #dueDlg .dgrid button.today { color:var(--acc); font-weight:700; } #dueDlg .dgrid button.sel { background:var(--acc); color:var(--bg); font-weight:700; }
+  #dueDlg .dfoot { display:flex; justify-content:space-between; align-items:center; margin:8px 0 0; padding-top:6px; border-top:1px solid var(--line); } #dueDlg .dfoot button { height:44px; padding:0 14px; border-radius:10px; font-size:16px; color:var(--acc); } #dueDlg .dfoot [data-act=close] { color:var(--mut); }
   .tstrip { display:flex; overflow-x:auto; scroll-snap-type:x mandatory; scrollbar-width:none; margin-top:6px; } .tstrip::-webkit-scrollbar { display:none; } .tagname { font-weight:600; }
   .filters button[data-f="#"] { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .wchip { position:relative; text-decoration:underline dotted; text-underline-offset:3px; cursor:pointer; }
@@ -153,7 +156,7 @@ body, button, select, input, textarea { text-transform: lowercase; }
 </main>
 
 <dialog id="dueDlg"><div class="dcal">
-  <div class="dhead"><button type="button" data-act="prev" aria-label="previous month">‹</button><button type="button" class="dtitle" id="dueTitle" data-act="home"></button><button type="button" class="dhome" id="dueHome" data-act="home">↺ today</button><button type="button" data-act="next" aria-label="next month">›</button></div>
+  <div class="dhead"><button type="button" class="dnav" data-act="prev" aria-label="previous month">‹</button><button type="button" class="dtitle" id="dueTitle" data-act="home"></button><button type="button" class="dhome" id="dueHome" data-act="home">↺ today</button><button type="button" class="dnav" data-act="next" aria-label="next month">›</button></div>
   <div class="dgrid dwk"><span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span></div><div class="dgrid" id="dueGrid"></div>
   <div class="dfoot"><button type="button" data-act="none">no date</button><button type="button" data-act="close" aria-label="close">✕</button><button type="button" data-act="today">today</button></div>
 </div></dialog>
@@ -410,7 +413,7 @@ $('#dueDlg').addEventListener('touchend', e => {
 }, { passive: true });
 function renderDue() {
   const v = dueTarget.querySelector('input[name=due]').value;
-  $('#dueTitle').textContent = new Date(dueMonth + '-01T00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const mo = new Date(dueMonth + '-01T00:00'); $('#dueTitle').innerHTML = mo.toLocaleDateString('en-US', { month: 'long' }) + ` <span class="yr">${mo.getFullYear()}</span>`;
   $('#dueHome').hidden = dueMonth === today().slice(0, 7);
   $('#dueGrid').innerHTML = monthGrid(dueMonth, v);
 }
