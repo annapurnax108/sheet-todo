@@ -324,6 +324,26 @@ function advance(t, status, catchUp = true) {
   if (tasks.some(x => x.series === series && x.id !== t.id && isOpen(x))) return;
   upsert({ id: uuid(), task: t.task, status: 'todo', due: nextDue(t), notes: t.notes || '', completed_at: '', repeat: t.repeat, repeat_from: t.repeat_from || 'due', series, updated_at: new Date().toISOString() });
 }
+// deleting the open occurrence of a repeating task ends the series: the latest closed row stops repeating so repairSeries leaves it alone
+function endSeries(t) {
+  if (!t.series || !t.repeat || isGoal(t.repeat) || !isOpen(t)) return;
+  const last = tasks.filter(x => x.series === t.series && x.id !== t.id && x.repeat).sort((a, b) => (b.due || '').localeCompare(a.due || '') || (b.completed_at || '').localeCompare(a.completed_at || ''))[0];
+  if (last) upsert({ ...last, repeat: '', updated_at: new Date().toISOString() });
+}
+// a repeating series with no open row (its last occurrence was closed by hand in the sheet, not through advance()) gets its next occurrence;
+// the id comes from the series + the closed row so two devices repairing the same gap write the same row; runs only on fresh server data
+function repairSeries() {
+  const by = {};
+  tasks.filter(t => t.series).forEach(t => (by[t.series] = by[t.series] || []).push(t));
+  Object.values(by).forEach(rows => {
+    if (rows.some(isOpen) || rows.some(t => isGoal(t.repeat))) return;
+    const last = rows.slice().sort((a, b) => (b.due || '').localeCompare(a.due || '') || (b.completed_at || '').localeCompare(a.completed_at || ''))[0];
+    if (!last.due || !last.repeat) return; // the latest row no longer repeats: the series was ended
+    const id = `${last.series}:next:${last.due}`;
+    if (tasks.some(x => x.id === id)) return;
+    upsert({ id, task: last.task, status: 'todo', due: nextDue(last), notes: last.notes || '', completed_at: '', repeat: last.repeat, repeat_from: last.repeat_from || 'due', series: last.series, updated_at: new Date().toISOString() });
+  });
+}
 // un-checking a done repeating task drops the still-untouched next occurrence so it isn't duplicated
 function reopen(t) {
   const nx = t.series && tasks.filter(x => x.series === t.series && x.id !== t.id && x.status === 'todo' && x.due > (t.due || '')).sort((a, b) => a.due.localeCompare(b.due))[0];
@@ -365,7 +385,7 @@ async function sync() {
     let server;
     while (queue.length) { server = await call(queue[0]); queue.shift(); save('queue', queue); }
     server = server || await call({ action: 'list' });
-    if (!queue.length) { tasks = server.map(norm); save('tasks', tasks); }
+    if (!queue.length) { tasks = server.map(norm); save('tasks', tasks); repairSeries(); }
     retryWait = 5000;
     setStatus('Synced ' + new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }));
   } catch (e) {
@@ -662,7 +682,7 @@ $('#list').addEventListener('click', e => {
   else if (a === 'skip') { editing = null; advance(t, 'missed'); }
   else if (a === 'edit') { dueOpen = null; editing = editing === t.id ? null : t.id; notesOpen.delete(t.id); render(); liftEdit(); if (editing) [60, 300].forEach(ms => setTimeout(() => editing === t.id && liftEdit(), ms)); }
   else if (a === 'cancel') { editing = null; render(); }
-  else if (a === 'del') { if (confirm('Delete this task?')) { editing = null; del(t.id); } }
+  else if (a === 'del') { if (confirm('Delete this task?')) { editing = null; endSeries(t); del(t.id); } }
   else if (a === 'save') {
     const q = n => item.querySelector(`[name=${n}]`).value; editing = null;
     const repeat = fmtRepeat(q('repeat'), q('every')), status = q('status');
