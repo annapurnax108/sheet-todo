@@ -75,6 +75,7 @@ body, button, select, input, textarea { text-transform: lowercase; }
   .filters button[data-f="#"] { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .wchip { position:relative; text-decoration:underline dotted; text-underline-offset:3px; cursor:pointer; }
   .wdate, .tdate { position:absolute; inset:0; width:100%; height:100%; opacity:0; font-size:16px; cursor:pointer; }
+  .tviewbtn { margin-left:auto; font-size:13px; color:var(--acc); background:none; border:0; padding:0 4px; cursor:pointer; } .wyest + .tviewbtn { margin-left:8px; }
   .wback { font-size:13px; color:var(--acc); margin-top:8px; cursor:pointer; text-align:right; }
   .wday { border:1px solid var(--line); border-radius:8px; padding:4px 0; font-size:12px; color:var(--mut); } .wday b { display:block; font-size:16px; color:var(--fg); }
   .wday.today { border-color:var(--acc); background:var(--edit-bg); } .wday.today b { color:var(--acc); } .wday.future { opacity:.45; }
@@ -205,6 +206,7 @@ const composeNew = (typed, picks) => { const sp = splitTags(typed); return joinT
 // text after editing: the picker holds the task's full tag list (so a removed chip stays removed); tags typed into the title are added
 const composeEdit = (typed, orig, picks) => { const ty = splitTags(typed), or = splitTags(orig); return joinTags(ty.title || or.title, [...picks, ...ty.tags.filter(g => !picks.includes(g))]); };
 let tagFilter = '', tagStage = 'open', tagDay = '', tagFin = '', tagDueScroll = null, tagFinScroll = null; // the # tab: open tag, and what its list is narrowed to (a stage, a due day or a finished day)
+const tagView = load('tagview', {}); // per tag: 'simple' hides the day strips (kept on this phone)
 const tagReset = () => { tagStage = 'open'; tagDay = ''; tagFin = ''; tagDueScroll = null; tagFinScroll = null; };
 const matchesTag = t => filter !== '#' || !tagFilter || tagsOf(t).includes(tagFilter); // only the # tab is narrowed by a tag
 // the open tag's list: a finished day, a due day, or one stage (default: everything still open)
@@ -645,16 +647,21 @@ function tagHtml() {
   const ago = last ? Math.round((new Date(td + 'T00:00') - new Date(last + 'T00:00')) / 864e5) : -1;
   const lastTxt = ago < 0 ? 'Nothing finished yet.' : ' Last finished ' + (ago <= 0 ? 'today' : ago === 1 ? 'yesterday' : ago + ' days ago') + '.';
   const coach = over ? `${over} overdue. Start with the oldest.` : open.length ? [doing && `${doing} doing`, todo && `${todo} todo`].filter(Boolean).join(', ') + '.' : total ? 'All done. Nice.' : 'No tasks yet.';
+  const simple = tagView[tagFilter] === 'simple', finFrom = addPeriod(td, 'daily', -27);
+  const hasDue = open.some(t => !isGoal(t.repeat) && t.due), hasFin = mine.some(t => t.status === 'done' && t.completed_at >= finFrom && t.completed_at <= td);
+  const stalest = simple ? open.filter(t => !isGoal(t.repeat) && t.updated_at).sort((a, b) => a.updated_at.localeCompare(b.updated_at))[0] : null;
+  const stale = stalest ? Math.max(0, Math.round((new Date(td + 'T00:00') - new Date(stalest.updated_at.slice(0, 10) + 'T00:00')) / 864e5)) : 0;
   const plain = !tagDay && !tagFin, cell = (st, label, n) => `<div class="wday${plain && tagStage === st ? ' sel' : ''}" data-a="tagstage" data-s="${st}">${label}<b>${n}</b></div>`;
   const dayCell = (dd, a, sel, c) => `<div class="wday${dd === td ? ' today' : ''}${sel ? ' sel' : ''}" data-a="${a}" data-day="${dd}">${'SMTWTFS'[new Date(dd + 'T00:00').getDay()]}<b>${c || '·'}</b><small>${+dd.slice(8)}</small></div>`;
   const page = (start, fn) => `<div class="wpage">${Array.from({ length: 7 }, (_, i) => fn(addPeriod(start, 'daily', i))).join('')}</div>`;
   const due = Array.from({ length: 8 }, (_, k) => page(addPeriod(td, 'daily', 7 * k), dd => dayCell(dd, 'tagday', dd === tagDay, open.filter(t => !isGoal(t.repeat) && t.due === dd).length))).join('');
   const fin = Array.from({ length: 4 }, (_, k) => page(addPeriod(td, 'daily', -(7 * (4 - k) - 1)), dd => dayCell(dd, 'tagfin', dd === tagFin, mine.filter(t => t.status === 'done' && t.completed_at === dd).length))).join('');
-  return `<div class="wins tagcard"><div class="wtop"><span class="wcount tcount">${open.length}</span><span class="wlabel">open <b class="tagname">#${esc(tagFilter)}</b></span>${over ? `<span class="wyest bad">${over} overdue</span>` : ''}</div>`
+  return `<div class="wins tagcard"><div class="wtop"><span class="wcount tcount">${open.length}</span><span class="wlabel">open <b class="tagname">#${esc(tagFilter)}</b></span>${over ? `<span class="wyest bad">${over} overdue</span>` : ''}<button class="tviewbtn" data-a="tagview" title="${simple ? 'show the day strips' : 'hide the day strips'}">${simple ? 'full' : 'simple'}</button></div>`
     + `<div class="wcheer">${esc(coach)}${esc(lastTxt)}</div>`
     + (total ? `<div class="tprog"><i style="width:${Math.round(100 * done / total)}%"></i></div><div class="wnote">${done} of ${total} done</div>` : '')
     + `<div class="tstages">${cell('todo', 'todo', todo)}${cell('doing', 'doing', doing)}${cell('done', 'done', done)}${cell('overdue', 'overdue', over)}${cell('nodate', 'no date', nodate)}</div>`
-    + `<div class="wnote">due per day</div><div class="tstrip tdue">${due}</div><div class="wnote">finished per day</div><div class="tstrip tfin">${fin}</div>`
+    + (stalest ? `<div class="wnote tstale">Stalest open: ${esc(splitTags(stalest.task).title.slice(0, 40))} · ${stale ? 'untouched ' + stale + ' day' + (stale === 1 ? '' : 's') : 'touched today'}</div>` : '')
+    + (!simple && hasDue ? `<div class="wnote">due per day</div><div class="tstrip tdue">${due}</div>` : '') + (!simple && hasFin ? `<div class="wnote">finished per day</div><div class="tstrip tfin">${fin}</div>` : '')
     + `<div class="wback tback" data-a="tagback">← all tags</div></div>`;
 }
 function render() {
@@ -812,6 +819,7 @@ $('#list').addEventListener('click', e => {
   if (a === 'todayview') { todayWeek = e.target.closest('[data-v]').dataset.v === 'week'; render(); return; }
   if (a === 'tagrow') { tagFilter = e.target.closest('[data-g]').dataset.g; tagReset(); render(); fillAddTags(true); return; }
   if (a === 'tagback') { tagFilter = ''; tagReset(); render(); fillAddTags(true); return; }
+  if (a === 'tagview') { tagView[tagFilter] = tagView[tagFilter] === 'simple' ? 'full' : 'simple'; try { save('tagview', tagView); } catch {} tagDay = tagFin = ''; render(); return; }
   if (a === 'tagstage') { const st = e.target.closest('[data-s]').dataset.s; tagStage = !tagDay && !tagFin && tagStage === st ? 'open' : st; tagDay = tagFin = ''; render(); return; }
   if (a === 'tagday') { const d = e.target.closest('[data-day]').dataset.day; tagDay = tagDay === d ? '' : d; tagFin = ''; tagStage = 'open'; render(); return; }
   if (a === 'tagfin') { const d = e.target.closest('[data-day]').dataset.day; tagFin = tagFin === d ? '' : d; tagDay = ''; tagStage = 'open'; render(); return; }
