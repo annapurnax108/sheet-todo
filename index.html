@@ -50,6 +50,7 @@ body, button, select, input, textarea { text-transform: lowercase; }
   @keyframes slideInL { from { transform:translateX(24px); opacity:.3; } to { transform:none; opacity:1; } } @keyframes slideInR { from { transform:translateX(-24px); opacity:.3; } to { transform:none; opacity:1; } }
   @keyframes nudgeL { 50% { transform:translateX(-10px); } } @keyframes nudgeR { 50% { transform:translateX(10px); } }
   .slideInL { animation:slideInL .18s ease-out; } .slideInR { animation:slideInR .18s ease-out; } .nudgeL { animation:nudgeL .22s ease-out; } .nudgeR { animation:nudgeR .22s ease-out; }
+  @keyframes restoredPulse { from { background:color-mix(in srgb, var(--acc) 30%, transparent); } to { background:transparent; } } @media (prefers-reduced-motion: no-preference) { .item.restored { animation:restoredPulse 1.6s ease-out; } }
   @media (prefers-reduced-motion: reduce) { .slideInL, .slideInR, .nudgeL, .nudgeR { animation:none; } }
   .tpnote { grid-column:1/-1; font-size:12px; color:var(--mut); } .tpnote .tchip { margin-left:6px; opacity:.85; }
   .tagsug { grid-column:1/-1; display:flex; flex-wrap:wrap; gap:6px; } .tagsug[hidden] { display:none; } .sugchip { margin-left:0; padding:3px 10px; font-size:13px; line-height:20px; }
@@ -410,7 +411,7 @@ function monthGrid(ym, sel) {
 let dueTarget = null, dueMonth = ''; // dueTarget = { get, set, alive }: the calendar edits either a task form's date box or a task row's due date
 const boxTarget = box => ({ get: () => box.querySelector('input[name=due]').value, set: v => setDueBox(box, v), alive: () => box.isConnected });
 const taskTarget = id => ({ get: () => tasks.find(x => x.id === id)?.due || '', alive: () => tasks.some(x => x.id === id),
-  set: v => { const cur = tasks.find(x => x.id === id); if (cur && v !== (cur.due || '')) withUndo('Due date changed', () => upsert({ ...cur, due: v })); } });
+  set: v => { const cur = tasks.find(x => x.id === id); if (cur && v !== (cur.due || '')) withUndo('Due date changed', () => upsert({ ...cur, due: v }), id); } });
 const dueStep = k => { dueMonth = shiftMonth(dueMonth, k); renderDue(); slideList(k > 0 ? 'slideInL' : 'slideInR', $('#dueGrid')); };
 let dueSwipe = null; // swipe the calendar sideways: left = next month, right = previous
 $('#dueDlg').addEventListener('touchstart', e => { const t = e.touches[0]; dueSwipe = e.touches.length === 1 ? { x: t.clientX, y: t.clientY } : null; }, { passive: true });
@@ -513,17 +514,32 @@ function del(id) {
 // undo: an action runs as usual, a copy of the tasks from just before it is kept for a few seconds, and "Undo" puts back every row the action changed, removed or created
 let undoSnap = null, undoTimer = 0;
 function hideUndo() { clearTimeout(undoTimer); undoSnap = null; $('#undo').hidden = true; }
-function withUndo(label, fn) {
-  const before = JSON.parse(JSON.stringify(tasks));
+const viewState = () => ({ filter, todayDay, todayWeek, winsDay, tagFilter, tagStage, tagDay, tagFin }); // where the user was when the action happened
+function withUndo(label, fn, focus) { // focus = id of the row the action is about; Undo scrolls to it
+  const rows = JSON.parse(JSON.stringify(tasks)), view = viewState();
   fn();
-  undoSnap = before; $('#undoMsg').textContent = label; $('#undo').hidden = false;
+  undoSnap = { rows, focus, view }; $('#undoMsg').textContent = label; $('#undo').hidden = false;
   clearTimeout(undoTimer); undoTimer = setTimeout(hideUndo, 6000);
 }
 function undo() {
-  const before = undoSnap; if (!before) return; hideUndo();
-  const now = new Map(tasks.map(t => [t.id, t])), ids = new Set(before.map(t => t.id));
-  before.forEach(b => { const c = now.get(b.id); if (!c || JSON.stringify(c) !== JSON.stringify(b)) upsert(b); });
+  const snap = undoSnap; if (!snap) return; hideUndo();
+  const before = snap.rows, restored = [], now = new Map(tasks.map(t => [t.id, t])), ids = new Set(before.map(t => t.id));
+  before.forEach(b => { const c = now.get(b.id); if (!c || JSON.stringify(c) !== JSON.stringify(b)) { upsert(b); restored.push(b.id); } });
   tasks.filter(t => !ids.has(t.id)).forEach(t => del(t.id));
+  showRestored(snap.focus, restored, snap.view);
+}
+// after Undo: bring the restored task into view (going back to the tab / day / tag the action was done in if it is not in the current list) and flash it
+function showRestored(focus, restored, view) {
+  const find = () => { for (const id of [focus, ...restored]) { const el = id && document.querySelector(`.item[data-id="${String(id).replace(/["\\]/g, '\\$&')}"]`); if (el) return el; } };
+  let el = find();
+  if (!el && view) {
+    setFilter(view.filter); ({ todayDay, todayWeek, winsDay, tagFilter, tagStage, tagDay, tagFin } = view); render(); if (view.filter === '#') fillAddTags(true);
+    el = find();
+  }
+  if (!el) return;
+  el.scrollIntoView({ block: 'center', behavior: 'instant' }); // a straight jump (a long smooth scroll is slow); the flash shows where you landed
+  el.classList.remove('restored'); void el.offsetWidth; el.classList.add('restored');
+  el.addEventListener('animationend', () => el.classList.remove('restored'), { once: true });
 }
 $('#undoBtn').onclick = undo;
 
@@ -818,24 +834,24 @@ $('#list').addEventListener('click', e => {
   if (a === 'winback') { winsDay = null; winsScroll = null; render(); return; } // back to today also brings the strip to this week
   if (!a || !item) return;
   const t = tasks.find(x => x.id === item.dataset.id);
-  if (a === 'log') withUndo('Session logged', () => logSession(t));
+  if (a === 'log') withUndo('Session logged', () => logSession(t), t.id);
   else if (a === 'notedone') { document.activeElement?.blur?.(); notesOpen.delete(t.id); render(); }
   else if (a === 'due') openDue(taskTarget(t.id));
   else if (a === 'tagpick') { const g = e.target.closest('[data-tag]').dataset.tag; setFilter('#'); tagFilter = g; render(); fillAddTags(true); } // a tag chip opens that tag's dashboard
   else if (a === 'note') { const open = !notesOpen.has(t.id); open ? notesOpen.add(t.id) : notesOpen.delete(t.id); render(); if (open) liftNote(t.id, !t.notes); }
   else if (a === 'histall') { histAll.has(t.series) ? histAll.delete(t.series) : histAll.add(t.series); render(); }
   else if (a === 'hist') { histOpen.has(t.series) ? histOpen.delete(t.series) : histOpen.add(t.series); render(); }
-  else if (a === 'toggle') withUndo(isGoal(t.repeat) ? 'Session removed' : t.status === 'done' ? 'Reopened' : 'Marked done', () => { if (isGoal(t.repeat)) delSession(t); else if (t.status === 'done') reopen(t); else if (t.repeat) advance(t, 'done'); else upsert(withStatus(t, 'done')); });
-  else if (a === 'skip') { editing = null; withUndo('Skipped', () => advance(t, 'missed')); }
+  else if (a === 'toggle') withUndo(isGoal(t.repeat) ? 'Session removed' : t.status === 'done' ? 'Reopened' : 'Marked done', () => { if (isGoal(t.repeat)) delSession(t); else if (t.status === 'done') reopen(t); else if (t.repeat) advance(t, 'done'); else upsert(withStatus(t, 'done')); }, t.id);
+  else if (a === 'skip') { editing = null; withUndo('Skipped', () => advance(t, 'missed'), t.id); }
   else if (a === 'edit') { editing = editing === t.id ? null : t.id; notesOpen.delete(t.id); render(); liftEdit(); if (editing) [60, 300].forEach(ms => setTimeout(() => editing === t.id && liftEdit(), ms)); }
   else if (a === 'cancel') { editing = null; render(); }
-  else if (a === 'del') { if (confirm('Delete this task?')) { editing = null; withUndo('Deleted', () => { endSeries(t); del(t.id); }); } }
+  else if (a === 'del') { if (confirm('Delete this task?')) { editing = null; withUndo('Deleted', () => { endSeries(t); del(t.id); }, t.id); } }
   else if (a === 'save') {
     const q = n => item.querySelector(`[name=${n}]`).value; editing = null;
     const repeat = fmtRepeat(q('repeat'), q('every')), status = q('status');
     const pickT = pickedOf(item.querySelector('.tagpick'));
     const edited = { ...t, task: composeEdit(q('task'), t.task, pickT) || t.task, due: isGoal(repeat) && !isGoal(t.repeat) ? weekEnd(today()) : q('due'), notes: q('notes'), repeat, repeat_from: repeat && !isGoal(repeat) ? q('repeat_from') : '', series: repeat ? t.series || uuid() : t.series };
-    withUndo('Changes saved', () => { if (repeat && !isGoal(repeat) && isOpen(t) && !isOpen({ status })) advance(edited, status); else upsert(withStatus(edited, status)); });
+    withUndo('Changes saved', () => { if (repeat && !isGoal(repeat) && isOpen(t) && !isOpen({ status })) advance(edited, status); else upsert(withStatus(edited, status)); }, t.id);
   }
 });
 function toggleSearch(open) {
