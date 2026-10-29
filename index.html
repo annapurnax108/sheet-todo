@@ -84,9 +84,7 @@ body, button, select, input, textarea { text-transform: lowercase; }
   .row { display:flex; align-items:center; gap:10px; }
   .row .t { flex:1; word-break:break-word; } .done .t { text-decoration:line-through; color:var(--mut); }
   .item.win .t { text-decoration:none; color:var(--fg); } .tick { border:none; background:none; padding:0 4px; width:22px; font-size:16px; line-height:1; color:var(--good); font-weight:700; cursor:pointer; }
-  .duebtn { cursor:pointer; text-decoration:underline dotted; text-underline-offset:3px; padding:4px 0; } .duebtn.on { text-decoration:underline; }
-  .qdue { display:flex; flex-direction:column; align-items:stretch; gap:6px; width:9.5em; margin:6px 0 0 auto; } .qdue button { font-size:14px; padding:8px 10px; text-align:center; } .qdue button.on { background:var(--acc); color:#fff; border-color:var(--acc); }
-  .qdate { font-size:16px; padding:6px 8px; min-width:0; width:100%; }
+  .duebtn { cursor:pointer; text-decoration:underline dotted; text-underline-offset:3px; padding:4px 0; }
   .due { font-size:13px; color:var(--mut); } .due.over { color:var(--bad); font-weight:600; } .due.soon { color:var(--soon); font-weight:600; } .due.tmrw { color:var(--tmrw); font-weight:600; }
   .rep { color:var(--mut); font-size:12px; margin:4px 0 0 30px; }
   .notes { color:var(--mut); font-size:14px; margin:6px 0 0 30px; white-space:pre-wrap; }
@@ -231,7 +229,7 @@ function renderPick(box, tags) { // redraw a picker's chips (tags are added by t
 }
 
 const isOpen = t => t.status !== 'done' && t.status !== 'missed';
-let cfg = load('cfg', {}), tasks = load('tasks', []).map(norm), queue = load('queue', []), filter = 'Today', query = '', editing = null, syncing = false, histOpen = new Set(), histAll = new Set(), notesOpen = new Set(), dueOpen = null, winsDay = null, winsScroll = null, winsJump = false, todayDay = null, todayWeek = false, todayScroll = null, todayJump = false;
+let cfg = load('cfg', {}), tasks = load('tasks', []).map(norm), queue = load('queue', []), filter = 'Today', query = '', editing = null, syncing = false, histOpen = new Set(), histAll = new Set(), notesOpen = new Set(), winsDay = null, winsScroll = null, winsJump = false, todayDay = null, todayWeek = false, todayScroll = null, todayJump = false;
 
 const uuid = () => crypto.randomUUID ? crypto.randomUUID() : 'id-' + Date.now() + Math.random().toString(16).slice(2);
 const today = () => new Date().toLocaleDateString('en-CA');
@@ -409,33 +407,37 @@ function monthGrid(ym, sel) {
   return Array.from({ length: 42 }, (_, i) => { const d = addPeriod(start, 'daily', i);
     return `<button type="button" data-day="${d}" class="${d.slice(0, 7) !== ym ? 'other' : ''}${d === td ? ' today' : ''}${d === sel ? ' sel' : ''}">${+d.slice(8)}</button>`; }).join('');
 }
-let dueTarget = null, dueMonth = '';
+let dueTarget = null, dueMonth = ''; // dueTarget = { get, set, alive }: the calendar edits either a task form's date box or a task row's due date
+const boxTarget = box => ({ get: () => box.querySelector('input[name=due]').value, set: v => setDueBox(box, v), alive: () => box.isConnected });
+const taskTarget = id => ({ get: () => tasks.find(x => x.id === id)?.due || '', alive: () => tasks.some(x => x.id === id),
+  set: v => { const cur = tasks.find(x => x.id === id); if (cur && v !== (cur.due || '')) withUndo('Due date changed', () => upsert({ ...cur, due: v })); } });
 const dueStep = k => { dueMonth = shiftMonth(dueMonth, k); renderDue(); slideList(k > 0 ? 'slideInL' : 'slideInR', $('#dueGrid')); };
 let dueSwipe = null; // swipe the calendar sideways: left = next month, right = previous
 $('#dueDlg').addEventListener('touchstart', e => { const t = e.touches[0]; dueSwipe = e.touches.length === 1 ? { x: t.clientX, y: t.clientY } : null; }, { passive: true });
 $('#dueDlg').addEventListener('touchend', e => {
   if (!dueSwipe) return; const t = e.changedTouches[0], dx = t.clientX - dueSwipe.x, dy = t.clientY - dueSwipe.y; dueSwipe = null;
-  if (Math.abs(dx) >= 40 && Math.abs(dx) > 1.5 * Math.abs(dy) && dueTarget?.isConnected) dueStep(dx < 0 ? 1 : -1);
+  if (Math.abs(dx) >= 40 && Math.abs(dx) > 1.5 * Math.abs(dy) && dueTarget?.alive()) dueStep(dx < 0 ? 1 : -1);
 }, { passive: true });
 function renderDue() {
-  const v = dueTarget.querySelector('input[name=due]').value;
+  const v = dueTarget.get();
   const mo = new Date(dueMonth + '-01T00:00'); $('#dueTitle').innerHTML = mo.toLocaleDateString('en-US', { month: 'long' }) + ` <span class="yr">${mo.getFullYear()}</span>`;
   $('#dueHome').hidden = dueMonth === today().slice(0, 7);
   $('#dueGrid').innerHTML = monthGrid(dueMonth, v);
 }
-function openDue(box) { dueTarget = box; dueMonth = (box.querySelector('input[name=due]').value || today()).slice(0, 7); renderDue(); $('#dueDlg').showModal(); document.activeElement?.blur(); } // no focus ring on the first button
-function setDue(box, v) { box.querySelector('input[name=due]').value = v; if (box.closest('#add')) dueCleared = v === ''; syncDue(box); $('#dueDlg').close(); }
+function openDue(target) { dueTarget = target; dueMonth = (target.get() || today()).slice(0, 7); renderDue(); $('#dueDlg').showModal(); document.activeElement?.blur(); } // no focus ring on the first button
+function setDueBox(box, v) { box.querySelector('input[name=due]').value = v; if (box.closest('#add')) dueCleared = v === ''; syncDue(box); }
+function setDue(v) { const t = dueTarget; $('#dueDlg').close(); t.set(v); }
 function setDueDefault() { const i = $('#add').due, d = (filter === 'Today' && todayDay) || today(); if (!dueCleared && (!i.value || i.value === i.defaultValue)) i.value = d; i.defaultValue = d; syncDue(i.closest('.duebox')); }
 document.addEventListener('click', e => {
   const chip = e.target.closest?.('.duechip'), dlg = $('#dueDlg');
-  if (chip) { openDue(chip.parentNode); return; }
+  if (chip) { openDue(boxTarget(chip.parentNode)); return; }
   if (!dlg.open) return;
   if (e.target === dlg) { dlg.close(); return; } // tap on the dimmed page behind the card
   const day = e.target.closest?.('#dueGrid [data-day]'), act = e.target.closest?.('#dueDlg [data-act]')?.dataset.act;
-  if (!dueTarget?.isConnected) { dlg.close(); return; } // the form was redrawn while the calendar was open
-  if (day) setDue(dueTarget, day.dataset.day);
-  else if (act === 'none') setDue(dueTarget, '');
-  else if (act === 'today') setDue(dueTarget, today());
+  if (!dueTarget?.alive()) { dlg.close(); return; } // the form or task went away while the calendar was open
+  if (day) setDue(day.dataset.day);
+  else if (act === 'none') setDue('');
+  else if (act === 'today') setDue(today());
   else if (act === 'prev' || act === 'next') dueStep(act === 'next' ? 1 : -1);
   else if (act === 'home') { dueMonth = today().slice(0, 7); renderDue(); }
   else if (act === 'close') dlg.close();
@@ -528,11 +530,6 @@ $('#undoBtn').onclick = undo;
 // quick-note box is as tall as its text, so the whole note is visible
 const growNote = ta => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight + 2, innerHeight * 0.7) + 'px'; };
 // quick reschedule row under a task: one tap for the usual moves, a date picker for the rest
-const dueChoices = t => ({ today: today(), tomorrow: addPeriod(today(), 'daily', 1), week: addPeriod(t.due && t.due > today() ? t.due : today(), 'daily', 7) });
-const quickDueHtml = t => {
-  const c = dueChoices(t), b = (k, label) => `<button data-a="dueset" data-d="${k}" class="${t.due === c[k] ? 'on' : ''}">${label}</button>`;
-  return `<div class="qdue">${b('today', 'today')}${b('tomorrow', 'tomorrow')}${b('week', '+1 week')}<input class="qdate" type="date" value="${esc(t.due)}" aria-label="pick a date"></div>`;
-};
 // "done today" view: count, cheer, yesterday, streak, the week at a glance, and weekly-goal sessions grouped per goal
 function winsHtml() {
   const pool = tasks.filter(matchesTag); // counts follow the tag filter
@@ -690,12 +687,11 @@ function render() {
       <div class="row">${plus ? `<button class="plus${met ? ' met' : ''}" data-a="log" aria-label="log a session">+1</button>` : win ? `<button class="tick" data-a="toggle" aria-label="undo done" title="undo">✓</button>` : `<input type="checkbox" data-a="toggle" ${t.status === 'done' ? 'checked' : ''}>`}
         <span class="t" data-a="edit">${esc(splitTags(t.task).title || t.task)}${tagChips(tagsOf(t))}${t.status === 'doing' ? ' <small>(doing)</small>' : ''}</span>
         ${!ed ? `<button class="nbtn${t.notes ? '' : ' empty'}${notesOpen.has(t.id) ? ' on' : ''}" data-a="note" aria-label="${t.notes ? 'show note' : 'add note'}">💬</button>` : ''}
-        ${win ? '' : `<span class="due ${goal ? '' : over ? 'over' : tmrw ? 'tmrw' : soon ? 'soon' : ''}${isOpen(t) && !goal && !ed ? ' duebtn' + (dueOpen === t.id ? ' on' : '') : ''}"${isOpen(t) && !goal && !ed ? ' data-a="due" role="button" aria-label="change due date"' : ''}>${esc(showDate(t.due) || (isOpen(t) && !goal && !ed ? 'no date' : ''))}</span>`}
+        ${win ? '' : `<span class="due ${goal ? '' : over ? 'over' : tmrw ? 'tmrw' : soon ? 'soon' : ''}${isOpen(t) && !goal && !ed ? ' duebtn' : ''}"${isOpen(t) && !goal && !ed ? ' data-a="due" role="button" aria-label="change due date"' : ''}>${esc(showDate(t.due) || (isOpen(t) && !goal && !ed ? 'no date' : ''))}</span>`}
         ${t.status === 'done' && t.completed_at && !(filter === 'Wins' && !query) ? `<span class="due">done ${esc(showDate(t.completed_at))}</span>` : ''}
         ${t.status === 'missed' ? '<span class="due">missed</span>' : ''}</div>
       ${t.repeat ? `<div class="rep"${plus ? ' data-a="hist"' : ''}>↻ ${esc(repeatLabel(t.repeat))}${plus ? (histOpen.has(t.series) ? ' ▴ history' : ' ▾ history') : t.series ? ' · ' + seriesStats(t.series) : ''}</div>${plus ? goalBox(t) : ''}${plus && histOpen.has(t.series) ? histHtml(t) : ''}` : ''}
       ${!ed && notesOpen.has(t.id) ? `<textarea class="qnote" name="qnote" rows="3" placeholder="Add a note…">${esc(t.notes)}</textarea><div class="tagsug" hidden></div><button class="qdone" data-a="notedone">done</button>` : ''}
-      ${!ed && !goal && isOpen(t) && dueOpen === t.id ? quickDueHtml(t) : ''}
       ${ed ? `<div class="edit"><input name="task" value="${esc(splitTags(t.task).title || t.task)}"><div class="tagsug" hidden></div>
         <div class="two tagged">${dueBoxHtml(t.due)}
         <select name="status">${STATUSES.map(s => `<option ${s === t.status ? 'selected' : ''}>${s}</option>`).join('')}</select>
@@ -776,10 +772,6 @@ document.addEventListener('change', e => {
   if (e.target.classList?.contains('wdate') && e.target.value) { // jump to a picked date in the done-today view
     winsDay = e.target.value === today() ? null : e.target.value; winsJump = true; winsScroll = null; render();
   }
-  if (e.target.classList?.contains('qdate') && e.target.value) { // quick reschedule: picked a date
-    const t = tasks.find(x => x.id === e.target.closest('.item')?.dataset.id); if (!t) return;
-    dueOpen = null; withUndo('Due date changed', () => upsert({ ...t, due: e.target.value }));
-  }
 });
 addForm.addEventListener('reset', () => setTimeout(() => syncEvery(addEl('repeat'))));
 $('#filters').addEventListener('click', e => {
@@ -828,15 +820,14 @@ $('#list').addEventListener('click', e => {
   const t = tasks.find(x => x.id === item.dataset.id);
   if (a === 'log') withUndo('Session logged', () => logSession(t));
   else if (a === 'notedone') { document.activeElement?.blur?.(); notesOpen.delete(t.id); render(); }
-  else if (a === 'due') { dueOpen = dueOpen === t.id ? null : t.id; render(); if (dueOpen) revealRow(t.id); }
-  else if (a === 'dueset') { const d = dueChoices(t)[e.target.closest('[data-d]').dataset.d]; dueOpen = null; withUndo('Due date changed', () => upsert({ ...t, due: d })); }
+  else if (a === 'due') openDue(taskTarget(t.id));
   else if (a === 'tagpick') { const g = e.target.closest('[data-tag]').dataset.tag; setFilter('#'); tagFilter = g; render(); fillAddTags(true); } // a tag chip opens that tag's dashboard
-  else if (a === 'note') { dueOpen = null; const open = !notesOpen.has(t.id); open ? notesOpen.add(t.id) : notesOpen.delete(t.id); render(); if (open) liftNote(t.id, !t.notes); }
+  else if (a === 'note') { const open = !notesOpen.has(t.id); open ? notesOpen.add(t.id) : notesOpen.delete(t.id); render(); if (open) liftNote(t.id, !t.notes); }
   else if (a === 'histall') { histAll.has(t.series) ? histAll.delete(t.series) : histAll.add(t.series); render(); }
   else if (a === 'hist') { histOpen.has(t.series) ? histOpen.delete(t.series) : histOpen.add(t.series); render(); }
   else if (a === 'toggle') withUndo(isGoal(t.repeat) ? 'Session removed' : t.status === 'done' ? 'Reopened' : 'Marked done', () => { if (isGoal(t.repeat)) delSession(t); else if (t.status === 'done') reopen(t); else if (t.repeat) advance(t, 'done'); else upsert(withStatus(t, 'done')); });
   else if (a === 'skip') { editing = null; withUndo('Skipped', () => advance(t, 'missed')); }
-  else if (a === 'edit') { dueOpen = null; editing = editing === t.id ? null : t.id; notesOpen.delete(t.id); render(); liftEdit(); if (editing) [60, 300].forEach(ms => setTimeout(() => editing === t.id && liftEdit(), ms)); }
+  else if (a === 'edit') { editing = editing === t.id ? null : t.id; notesOpen.delete(t.id); render(); liftEdit(); if (editing) [60, 300].forEach(ms => setTimeout(() => editing === t.id && liftEdit(), ms)); }
   else if (a === 'cancel') { editing = null; render(); }
   else if (a === 'del') { if (confirm('Delete this task?')) { editing = null; withUndo('Deleted', () => { endSeries(t); del(t.id); }); } }
   else if (a === 'save') {
@@ -910,7 +901,6 @@ const showField = (el, bottomEl = el) => {
 const showQnote = ta => showField(ta, ta.nextElementSibling || ta);
 const inEditPanel = el => el?.matches?.('.item.editing input, .item.editing select, .item.editing textarea:not([name=notes])');
 // a row opened near the bottom edge scrolls up just enough to be fully visible
-const revealRow = id => { const r = document.querySelector(`[data-id="${id}"]`)?.getBoundingClientRect(); if (r && r.bottom > innerHeight - 24) window.scrollBy({ top: r.bottom - innerHeight + 24, behavior: 'instant' }); };
 // opening the edit panel brings it fully into view (scrolling only if needed)
 const liftEdit = () => {
   const p = document.querySelector('.item.editing'); if (!p) return;
