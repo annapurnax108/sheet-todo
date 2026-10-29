@@ -61,8 +61,11 @@ body, button, select, input, textarea { text-transform: lowercase; }
   .trow .tdot { width:10px; height:10px; border-radius:50%; background:var(--mut); } .trow .tdot.all { background:var(--line); } .trow .tcnt { font-size:13px; color:var(--mut); } .trow .tprog { grid-column:2 / 4; margin-top:0; height:4px; }
   .tstages { display:grid; grid-template-columns:repeat(5,1fr); gap:4px; text-align:center; margin-top:10px; }
   .duebox { position:relative; display:block; } .duechip { width:100%; text-align:left; font-size:16px; white-space:nowrap; } .duechip.none { color:var(--mut); }
-  .duemenu { position:absolute; top:100%; left:0; z-index:20; display:flex; flex-direction:column; gap:6px; margin:4px 0 0; padding:6px; background:var(--bg); border:1px solid var(--line); border-radius:10px; box-shadow:0 6px 18px rgba(0,0,0,.35); width:9.5em; } .duemenu[hidden] { display:none; }
-  .duemenu button { font-size:14px; padding:8px 10px; text-align:center; } .duemenu button.on { background:var(--acc); color:#fff; border-color:var(--acc); } .duepick { font-size:16px; padding:6px 8px; min-width:0; width:100%; }
+  #dueDlg { padding:0; width:min(92vw,340px); } #dueDlg::backdrop { background:rgba(0,0,0,.55); } .dcal { padding:12px; }
+  .dhead { display:flex; align-items:center; gap:6px; margin-bottom:8px; } .dhead button { min-height:40px; } .dhead .dtitle { flex:1; border:0; background:none; font-size:16px; font-weight:600; } .dhead .dhome { font-size:13px; color:var(--acc); } .dhead .dhome[hidden] { display:none; }
+  .dgrid { display:grid; grid-template-columns:repeat(7,1fr); gap:4px; text-align:center; } .dgrid.dwk { font-size:12px; color:var(--mut); margin-bottom:2px; }
+  .dgrid button { min-height:40px; padding:0; font-size:15px; } .dgrid button.other { color:var(--mut); border-color:transparent; background:none; } .dgrid button.today { border-color:var(--acc); } .dgrid button.sel { background:var(--acc); color:#fff; border-color:var(--acc); }
+  .dfoot { display:flex; justify-content:space-between; gap:8px; margin-top:10px; }
   .tstrip { display:flex; overflow-x:auto; scroll-snap-type:x mandatory; scrollbar-width:none; margin-top:6px; } .tstrip::-webkit-scrollbar { display:none; } .tagname { font-weight:600; }
   .filters button[data-f="#"] { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .wchip { position:relative; text-decoration:underline dotted; text-underline-offset:3px; cursor:pointer; }
@@ -148,6 +151,12 @@ body, button, select, input, textarea { text-transform: lowercase; }
   <div class="filters" id="filters"></div>
   <div id="list"></div>
 </main>
+
+<dialog id="dueDlg"><div class="dcal">
+  <div class="dhead"><button type="button" data-act="prev" aria-label="previous month">‹</button><button type="button" class="dtitle" id="dueTitle" data-act="home"></button><button type="button" class="dhome" id="dueHome" data-act="home">↺ today</button><button type="button" data-act="next" aria-label="next month">›</button></div>
+  <div class="dgrid dwk"><span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span></div><div class="dgrid" id="dueGrid"></div>
+  <div class="dfoot"><button type="button" data-act="none">no date</button><button type="button" data-act="close" aria-label="close">✕</button><button type="button" data-act="today">today</button></div>
+</div></dialog>
 
 <dialog id="dlg">
   <form method="dialog" id="cfgForm">
@@ -377,25 +386,44 @@ const withStatus = (t, status) => ({ ...t, status, completed_at: status !== 'don
 // pre-fill the add form's due date with today (and roll it over if the app stays open past midnight)
 // the due date defaults to today (or the selected day); choosing 'no date' in the date menu stays chosen until the task is added or the tab changes
 let dueCleared = false;
-// the due date in the task forms: a chip showing the full date (with the year) that opens a small menu (+1 day, the calendar, or no date); the real date input stays hidden and holds the value
+// the due date in the task forms: a chip showing the full date (with the year) that opens a calendar pop-up (#dueDlg, with no date / today); the hidden date input holds the value
 const dueLabel = v => v ? shortDay(v) + ', ' + v.slice(0, 4) : 'no date';
-const dueBoxHtml = v => `<span class="duebox"><button type="button" class="duechip${v ? '' : ' none'}">${esc(dueLabel(v))} ▾</button><input name="due" type="date" value="${esc(v)}" hidden><div class="duemenu" hidden><button type="button" data-d="tomorrow">+1 day</button><input class="duepick" type="date" aria-label="pick a date"><button type="button" data-d="none">no date</button></div></span>`;
+const dueBoxHtml = v => `<span class="duebox"><button type="button" class="duechip${v ? '' : ' none'}">${esc(dueLabel(v))} ▾</button><input name="due" type="date" value="${esc(v)}" hidden></span>`;
 const syncDue = box => {
   const v = box.querySelector('input[name=due]').value, chip = box.querySelector('.duechip');
   chip.textContent = dueLabel(v) + ' ▾'; chip.classList.toggle('none', !v);
-  box.querySelector('.duemenu [data-d=none]').classList.toggle('on', !v); box.querySelector('.duemenu [data-d=tomorrow]').classList.toggle('on', v === dueChoices({}).tomorrow);
 };
-const closeDueMenus = () => document.querySelectorAll('.duemenu:not([hidden])').forEach(m => { m.hidden = true; });
-function setDue(box, v) { box.querySelector('input[name=due]').value = v; if (box.closest('#add')) dueCleared = v === ''; syncDue(box); closeDueMenus(); }
+// the 42 day cells of a month (Sunday first); days of the neighbouring months are muted but can be picked
+const shiftMonth = (ym, k) => { const d = new Date(+ym.slice(0, 4), +ym.slice(5, 7) - 1 + k, 1); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); };
+function monthGrid(ym, sel) {
+  const first = ym + '-01', start = addPeriod(first, 'daily', -new Date(first + 'T00:00').getDay()), td = today();
+  return Array.from({ length: 42 }, (_, i) => { const d = addPeriod(start, 'daily', i);
+    return `<button type="button" data-day="${d}" class="${d.slice(0, 7) !== ym ? 'other' : ''}${d === td ? ' today' : ''}${d === sel ? ' sel' : ''}">${+d.slice(8)}</button>`; }).join('');
+}
+let dueTarget = null, dueMonth = '';
+function renderDue() {
+  const v = dueTarget.querySelector('input[name=due]').value;
+  $('#dueTitle').textContent = new Date(dueMonth + '-01T00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  $('#dueHome').hidden = dueMonth === today().slice(0, 7);
+  $('#dueGrid').innerHTML = monthGrid(dueMonth, v);
+}
+function openDue(box) { dueTarget = box; dueMonth = (box.querySelector('input[name=due]').value || today()).slice(0, 7); renderDue(); $('#dueDlg').showModal(); document.activeElement?.blur(); } // no focus ring on the first button
+function setDue(box, v) { box.querySelector('input[name=due]').value = v; if (box.closest('#add')) dueCleared = v === ''; syncDue(box); $('#dueDlg').close(); }
 function setDueDefault() { const i = $('#add').due, d = (filter === 'Today' && todayDay) || today(); if (!dueCleared && (!i.value || i.value === i.defaultValue)) i.value = d; i.defaultValue = d; syncDue(i.closest('.duebox')); }
 document.addEventListener('click', e => {
-  const chip = e.target.closest?.('.duechip'), pick = e.target.closest?.('.duemenu [data-d]');
-  if (chip) { const m = chip.parentNode.querySelector('.duemenu'), was = !m.hidden; closeDueMenus(); if (!was) { syncDue(chip.parentNode); m.hidden = false; } }
-  else if (pick) setDue(pick.closest('.duebox'), pick.dataset.d === 'none' ? '' : dueChoices({}).tomorrow);
-  else if (!e.target.closest?.('.duemenu')) closeDueMenus();
+  const chip = e.target.closest?.('.duechip'), dlg = $('#dueDlg');
+  if (chip) { openDue(chip.parentNode); return; }
+  if (!dlg.open) return;
+  if (e.target === dlg) { dlg.close(); return; } // tap on the dimmed page behind the card
+  const day = e.target.closest?.('#dueGrid [data-day]'), act = e.target.closest?.('#dueDlg [data-act]')?.dataset.act;
+  if (!dueTarget?.isConnected) { dlg.close(); return; } // the form was redrawn while the calendar was open
+  if (day) setDue(dueTarget, day.dataset.day);
+  else if (act === 'none') setDue(dueTarget, '');
+  else if (act === 'today') setDue(dueTarget, today());
+  else if (act === 'prev' || act === 'next') { dueMonth = shiftMonth(dueMonth, act === 'next' ? 1 : -1); renderDue(); }
+  else if (act === 'home') { dueMonth = today().slice(0, 7); renderDue(); }
+  else if (act === 'close') dlg.close();
 });
-document.addEventListener('change', e => { if (e.target.classList?.contains('duepick') && e.target.value) setDue(e.target.closest('.duebox'), e.target.value); });
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDueMenus(); });
 
 // how long one request may take: starts at 30s, doubles (up to 2 min) after a timeout so a slow sheet can still get through, drops back after a success
 let callTimeout = 30000, lastTimeout = 30, lastReply = {}, batchOK = true; // batchOK drops to false if the sheet's script predates the batch action
