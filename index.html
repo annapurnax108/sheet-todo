@@ -377,13 +377,13 @@ const withStatus = (t, status) => ({ ...t, status, completed_at: status !== 'don
 // pre-fill the add form's due date with today (and roll it over if the app stays open past midnight)
 // the due date defaults to today (or the selected day); choosing 'no date' in the date menu stays chosen until the task is added or the tab changes
 let dueCleared = false;
-// the due date in the task forms: a chip showing the full date (with the year) that opens a small menu (no date, or the calendar); the real date input stays hidden and holds the value
+// the due date in the task forms: a chip showing the full date (with the year) that opens a small menu (+1 day, the calendar, or no date); the real date input stays hidden and holds the value
 const dueLabel = v => v ? shortDay(v) + ', ' + v.slice(0, 4) : 'no date';
-const dueBoxHtml = v => `<span class="duebox"><button type="button" class="duechip${v ? '' : ' none'}">${esc(dueLabel(v))} ▾</button><input name="due" type="date" value="${esc(v)}" hidden><div class="duemenu" hidden><button type="button" data-d="none">no date</button><input class="duepick" type="date" aria-label="pick a date"></div></span>`;
+const dueBoxHtml = v => `<span class="duebox"><button type="button" class="duechip${v ? '' : ' none'}">${esc(dueLabel(v))} ▾</button><input name="due" type="date" value="${esc(v)}" hidden><div class="duemenu" hidden><button type="button" data-d="tomorrow">+1 day</button><input class="duepick" type="date" aria-label="pick a date"><button type="button" data-d="none">no date</button></div></span>`;
 const syncDue = box => {
   const v = box.querySelector('input[name=due]').value, chip = box.querySelector('.duechip');
   chip.textContent = dueLabel(v) + ' ▾'; chip.classList.toggle('none', !v);
-  box.querySelector('.duemenu [data-d=none]').classList.toggle('on', !v);
+  box.querySelector('.duemenu [data-d=none]').classList.toggle('on', !v); box.querySelector('.duemenu [data-d=tomorrow]').classList.toggle('on', v === dueChoices({}).tomorrow);
 };
 const closeDueMenus = () => document.querySelectorAll('.duemenu:not([hidden])').forEach(m => { m.hidden = true; });
 function setDue(box, v) { box.querySelector('input[name=due]').value = v; if (box.closest('#add')) dueCleared = v === ''; syncDue(box); closeDueMenus(); }
@@ -391,7 +391,7 @@ function setDueDefault() { const i = $('#add').due, d = (filter === 'Today' && t
 document.addEventListener('click', e => {
   const chip = e.target.closest?.('.duechip'), pick = e.target.closest?.('.duemenu [data-d]');
   if (chip) { const m = chip.parentNode.querySelector('.duemenu'), was = !m.hidden; closeDueMenus(); if (!was) { syncDue(chip.parentNode); m.hidden = false; } }
-  else if (pick) setDue(pick.closest('.duebox'), '');
+  else if (pick) setDue(pick.closest('.duebox'), pick.dataset.d === 'none' ? '' : dueChoices({}).tomorrow);
   else if (!e.target.closest?.('.duemenu')) closeDueMenus();
 });
 document.addEventListener('change', e => { if (e.target.classList?.contains('duepick') && e.target.value) setDue(e.target.closest('.duebox'), e.target.value); });
