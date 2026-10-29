@@ -58,6 +58,9 @@ body, button, select, input, textarea { text-transform: lowercase; }
   @media (prefers-color-scheme: dark) { .tchip { background:hsl(var(--h) 35% 26%); color:hsl(var(--h) 70% 82%); } }
   /* 16px so iOS doesn't zoom the page on tap, scaled to look like the 13px buttons */
   .filters select#tagSel { flex:1.5 1 0; min-width:0; font-size:16px; zoom:.8125; padding:7px 6px; text-align:center; } .filters select#tagSel.on { background:var(--acc); color:#fff; border-color:var(--acc); }
+  .tagchip { position:absolute; inset:0; width:100%; height:100%; opacity:0; font-size:16px; cursor:pointer; }
+  .tstages { display:grid; grid-template-columns:repeat(5,1fr); gap:4px; text-align:center; margin-top:10px; }
+  .tbars { display:flex; align-items:flex-end; gap:4px; height:30px; margin-top:10px; } .tbars i { flex:1; background:var(--line); border-radius:3px; } .tbars i.today { background:var(--acc); }
   .wchip { position:relative; text-decoration:underline dotted; text-underline-offset:3px; cursor:pointer; }
   .wdate, .tdate { position:absolute; inset:0; width:100%; height:100%; opacity:0; font-size:16px; cursor:pointer; }
   .wback { font-size:13px; color:var(--acc); margin-top:8px; cursor:pointer; text-align:right; }
@@ -508,6 +511,25 @@ function todayHtml() {
   return `<div class="wins"><div class="wtop"><span class="wcount tcount">${n}</span><span class="wlabel">${isToday && !todayWeek ? 'to do' : 'due'} ${chip}</span>${isToday && overdue ? `<span class="wyest bad">${overdue} overdue</span>` : ''}</div>`
     + `<div class="tmid"><span class="wcheer">${esc(coach)}</span>${seg}</div>${prog}<div class="wweek tweek">${strip}</div>${goalRows}${todayDay ? '<div class="wback tback" data-a="todayback">← back to today</div>' : ''}</div>`;
 }
+// summary card for the selected tag: open count with a tag switcher, coach line, progress, tappable stage cells and the last 7 days of finished tasks
+function tagHtml() {
+  const td = today(), mine = tasks.filter(matchesTag), pool = mine.filter(t => !isGoal(t.repeat) || isOpen(t));
+  const open = pool.filter(isOpen), done = pool.filter(t => t.status === 'done').length, total = open.length + done;
+  const count = st => open.filter(t => t.status === st).length;
+  const over = open.filter(t => !isGoal(t.repeat) && t.due && t.due < td).length, nodate = open.filter(t => !isGoal(t.repeat) && !t.due).length, doing = count('doing'), todo = count('todo');
+  const last = mine.filter(t => t.status === 'done' && t.completed_at).map(t => t.completed_at).sort().pop();
+  const ago = last ? Math.round((new Date(td + 'T00:00') - new Date(last + 'T00:00')) / 864e5) : -1;
+  const lastTxt = ago < 0 ? 'Nothing finished yet.' : ' Last finished ' + (ago <= 0 ? 'today' : ago === 1 ? 'yesterday' : ago + ' days ago') + '.';
+  const coach = over ? `${over} overdue. Start with the oldest.` : open.length ? [doing && `${doing} doing`, todo && `${todo} todo`].filter(Boolean).join(', ') + '.' : total ? 'All done. Nice.' : 'No tasks yet.';
+  const days = Array.from({ length: 7 }, (_, i) => addPeriod(td, 'daily', i - 6)), per = days.map(d => mine.filter(t => t.status === 'done' && t.completed_at === d).length), max = Math.max(1, ...per);
+  const chip = `<label class="wchip"><span>#${esc(tagFilter)} ▾</span><select class="tagchip" aria-label="switch tag"><option value="">all tags</option>${allTags().map(([g, n]) => `<option value="${esc(g)}"${g === tagFilter ? ' selected' : ''}>${esc(g)} (${n})</option>`).join('')}</select></label>`;
+  const cell = (st, label, n) => `<div class="wday${filter === st ? ' sel' : ''}" data-a="tagstage" data-s="${st}">${label}<b>${n}</b></div>`;
+  return `<div class="wins tagcard"><div class="wtop"><span class="wcount tcount">${open.length}</span><span class="wlabel">open ${chip}</span>${over ? `<span class="wyest bad">${over} overdue</span>` : ''}</div>`
+    + `<div class="wcheer">${esc(coach)}${esc(lastTxt)}</div>`
+    + (total ? `<div class="tprog"><i style="width:${Math.round(100 * done / total)}%"></i></div><div class="wnote">${done} of ${total} done</div>` : '')
+    + `<div class="tstages">${cell('todo', 'todo', todo)}${cell('doing', 'doing', doing)}${cell('done', 'done', done)}${cell('Open', 'overdue', over)}${cell('Open', 'no date', nodate)}</div>`
+    + `<div class="tbars" title="finished in the last 7 days">${per.map((n, i) => `<i class="${i === 6 ? 'today' : ''}" style="height:${Math.max(8, Math.round(100 * n / max))}%${n ? '' : ';opacity:.35'}" title="${dayLabel(days[i])}: ${n}"></i>`).join('')}</div><div class="wnote">finished in the last 7 days</div></div>`;
+}
 function render() {
   const fbtn = f => `<button data-f="${f}" class="${f === filter ? 'on' : ''}"${f === 'Repeat' ? ' title="repeating" aria-label="repeating"' : ''}>${FLABEL[f] || f}</button>`;
   if (tagFilter && !allTags().some(([g]) => g === tagFilter)) tagFilter = '';
@@ -521,7 +543,7 @@ function render() {
       || (!isOpen(a) ? (b.completed_at || b.due || '').localeCompare(a.completed_at || a.due || '') || (b.updated_at || '').localeCompare(a.updated_at || '') // same day: latest change first
         : (a.due || '9999').localeCompare(b.due || '9999')));
   $('#searchBtn').classList.toggle('on', !!query);
-  const winsHead = !query ? (filter === 'Wins' ? winsHtml() : filter === 'Today' ? todayHtml() : '') : '';
+  const winsHead = !query ? (filter === 'Wins' ? winsHtml() : filter === 'Today' ? todayHtml() : tagFilter ? tagHtml() : '') : '';
   const wkMode = filter === 'Today' && todayWeek && !query, gcount = {}, gseen = {};
   if (wkMode) shown.forEach(t => { const g = todayGroup(t); gcount[g] = (gcount[g] || 0) + 1; });
   $('#list').innerHTML = winsHead + (shown.map(t => {
@@ -574,7 +596,7 @@ const showTagBox = (sel, on) => { const box = sel.parentNode.querySelector('[nam
 const commitNewTag = input => { const box = input.closest('.tagpick'), tag = normTag(input.value), cur = pickedOf(box); renderPick(box, tag && !cur.includes(tag) ? [...cur, tag] : cur); };
 document.addEventListener('change', e => {
   if (e.target.name === 'tag') { const box = e.target.closest('.tagpick'); if (e.target.value === '__new') showTagBox(e.target, true); else if (e.target.value) renderPick(box, [...pickedOf(box), e.target.value]); }
-  if (e.target.id === 'tagSel') { tagFilter = e.target.value; render(); fillAddTags(true); }
+  if (e.target.id === 'tagSel' || e.target.classList?.contains('tagchip')) { tagFilter = e.target.value; render(); fillAddTags(true); }
 });
 // typing "#" in a task title suggests the existing tags (tap one to complete it), so one project keeps one spelling
 const TAG_AT_CARET = /(^|\s)#([\p{L}\p{N}_-]*)$/u;
@@ -667,6 +689,7 @@ $('#list').addEventListener('click', e => {
   if (a === 'todayday') { const d = e.target.closest('[data-day]').dataset.day; if (e.target.closest('.dayhead')) todayWeek = false; todayDay = d === today() ? null : d; if (!todayDay) todayScroll = null; setDueDefault(); render(); return; }
   if (a === 'todayback') { todayDay = null; todayScroll = null; setDueDefault(); render(); return; }
   if (a === 'todayview') { todayWeek = e.target.closest('[data-v]').dataset.v === 'week'; render(); return; }
+  if (a === 'tagstage') { setFilter(e.target.closest('[data-s]').dataset.s); return; }
   if (a === 'winback') { winsDay = null; winsScroll = null; render(); return; } // back to today also brings the strip to this week
   if (!a || !item) return;
   const t = tasks.find(x => x.id === item.dataset.id);
