@@ -768,6 +768,14 @@ const focusTask = () => { skipOpen = true; addEl('task').focus(); skipOpen = fal
 ['focus', 'click'].forEach(ev => addEl('task').addEventListener(ev, () => { if (!skipOpen) $('#more').hidden = false; }));
 $('#addClose').onclick = () => { $('#more').hidden = true; };
 addForm.addEventListener('keydown', e => { if (e.key === 'Escape') $('#more').hidden = true; });
+// Cmd / Ctrl + Enter saves from anywhere in the add form, an open edit card or a quick note (plain Enter still adds from a one-line field)
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Enter' || !(e.metaKey || e.ctrlKey) || $('#dueDlg').open || $('#dlg').open) return;
+  const t = e.target; if (!t.closest) return;
+  if (t.closest('#add')) { e.preventDefault(); addForm.requestSubmit(); return; }
+  const btn = t.closest('.item')?.querySelector(t.matches('.qnote') ? '[data-a=notedone]' : '.edit [data-a=save]');
+  if (btn) { e.preventDefault(); btn.click(); }
+});
 addForm.addEventListener('submit', e => {
   e.preventDefault();
   const repeat = fmtRepeat(addEl('repeat').value, addEl('every').value), status = addEl('status').value;
