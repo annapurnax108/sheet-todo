@@ -609,13 +609,13 @@ function todayHtml() {
   const open = pool.filter(t => isOpen(t) && !isGoal(t.repeat) && t.due);
   open.forEach(t => { cnt[t.due] = (cnt[t.due] || 0) + 1; });
   const overdue = open.filter(t => t.due < td).length, dueNow = open.filter(t => t.due <= td).length;
-  const goals = pool.filter(t => isOpen(t) && isGoal(t.repeat) && t.due >= td).map(goalState), needed = goals.filter(x => x.needed);
-  const doneDated = pool.filter(t => t.status === 'done' && t.completed_at === td && !isGoal(t.repeat)).length, doneGoals = goals.filter(x => x.loggedToday).length, doneToday = doneDated + doneGoals;
+  const goals = pool.filter(t => isOpen(t) && isGoal(t.repeat) && t.due >= td).map(goalState);
+  const doneDated = pool.filter(t => t.status === 'done' && t.completed_at === td && !isGoal(t.repeat)).length, doneToday = doneDated; // weekly goals are not counted here
   const goalDays = new Set(pool.filter(t => t.status === 'done' && isGoal(t.repeat) && t.completed_at).map(t => t.completed_at));
   cnt[td] = dueNow; // today's cell is today's list: due today plus anything overdue
-  // today's number = dated tasks due (plus overdue) and weekly goals that can no longer skip today; optional sessions are shown apart
-  const n = todayWeek ? pool.filter(t => todayPick(t) && !isGoal(t.repeat)).length : isToday ? dueNow + needed.length : cnt[day] || 0;
-  const total = doneToday + dueNow + needed.length;
+  // today's number = dated tasks due (plus overdue); weekly goals have their own cards in the list
+  const n = todayWeek ? pool.filter(t => todayPick(t) && !isGoal(t.repeat)).length : isToday ? dueNow : cnt[day] || 0;
+  const total = doneToday + dueNow;
   const showProg = isToday && !todayWeek && total, k = Math.min(total, 30), d = total <= 30 ? doneToday : Math.min(k, Math.floor(doneToday * k / total) || (doneToday ? 1 : 0)); // one segment per task (shares of the total above 30)
   const prog = showProg ? `<div class="tseg">${Array.from({ length: k }, (_, i) => `<i${i < d ? ' class="on"' : ''}></i>`).join('')}</div>` : '';
   const minDay = td, maxDay = addPeriod(td, 'daily', 7 * 259), pages = Math.min(260, Math.max(12, pg + 1));
