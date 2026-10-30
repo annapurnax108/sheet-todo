@@ -85,6 +85,7 @@ body, button, select, input, textarea { text-transform: lowercase; }
   .row { display:flex; align-items:center; gap:10px; }
   .row .t { flex:1; word-break:break-word; } .done .t { text-decoration:line-through; color:var(--mut); }
   .item.win .t { text-decoration:none; color:var(--fg); } .tick { border:none; background:none; padding:0 4px; width:22px; font-size:16px; line-height:1; color:var(--good); font-weight:700; cursor:pointer; }
+  .duechip:focus-visible, #dueDlg button:focus-visible { outline:2px solid var(--acc); outline-offset:2px; }
   .duebtn:focus-visible { outline:2px solid var(--acc); outline-offset:2px; border-radius:4px; }
   .duebtn { cursor:pointer; text-decoration:underline dotted; text-underline-offset:3px; padding:4px 0; }
   .due { font-size:13px; color:var(--mut); } .due.over { color:var(--bad); font-weight:600; } .due.soon { color:var(--soon); font-weight:600; } .due.tmrw { color:var(--tmrw); font-weight:600; }
@@ -161,9 +162,9 @@ body, button, select, input, textarea { text-transform: lowercase; }
 <div id="undo" hidden role="status"><span id="undoMsg"></span><button type="button" id="undoBtn">Undo</button></div>
 
 <dialog id="dueDlg"><div class="dcal">
-  <div class="dhead"><button type="button" class="dnav" data-act="prev" aria-label="previous month">‹</button><button type="button" class="dtitle" id="dueTitle" data-act="home"></button><button type="button" class="dhome" id="dueHome" data-act="home">↺ today</button><button type="button" class="dnav" data-act="next" aria-label="next month">›</button></div>
+  <div class="dhead"><button type="button" tabindex="0" class="dnav" data-act="prev" aria-label="previous month">‹</button><button type="button" tabindex="0" class="dtitle" id="dueTitle" data-act="home"></button><button type="button" tabindex="0" class="dhome" id="dueHome" data-act="home">↺ today</button><button type="button" tabindex="0" class="dnav" data-act="next" aria-label="next month">›</button></div>
   <div class="dgrid dwk"><span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span></div><div class="dgrid" id="dueGrid"></div>
-  <div class="dfoot"><button type="button" data-act="none">no date</button><button type="button" data-act="close" aria-label="close">✕</button><button type="button" data-act="today">today</button></div>
+  <div class="dfoot"><button type="button" tabindex="0" data-act="none">no date</button><button type="button" tabindex="0" data-act="close" aria-label="close">✕</button><button type="button" tabindex="0" data-act="today">today</button></div>
 </div></dialog>
 
 <dialog id="dlg">
@@ -397,7 +398,7 @@ const withStatus = (t, status) => ({ ...t, status, completed_at: status !== 'don
 let dueCleared = false;
 // the due date in the task forms: a chip showing the full date (with the year) that opens a calendar pop-up (#dueDlg, with no date / today); the hidden date input holds the value
 const dueLabel = v => v ? shortDay(v) + ', ' + v.slice(0, 4) : 'no date';
-const dueBoxHtml = v => `<span class="duebox"><button type="button" class="duechip${v ? '' : ' none'}">${esc(dueLabel(v))} ▾</button><input name="due" type="date" value="${esc(v)}" hidden></span>`;
+const dueBoxHtml = v => `<span class="duebox"><button type="button" tabindex="0" class="duechip${v ? '' : ' none'}">${esc(dueLabel(v))} ▾</button><input name="due" type="date" value="${esc(v)}" hidden></span>`;
 const syncDue = box => {
   const v = box.querySelector('input[name=due]').value, chip = box.querySelector('.duechip');
   chip.textContent = dueLabel(v) + ' ▾'; chip.classList.toggle('none', !v);
