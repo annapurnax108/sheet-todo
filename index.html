@@ -40,7 +40,7 @@ body, button, select, input, textarea { text-transform: lowercase; }
   .wweek { display:flex; overflow-x:auto; scroll-snap-type:x mandatory; scrollbar-width:none; margin-top:10px; } .wweek::-webkit-scrollbar { display:none; }
   .wpage { flex:0 0 100%; scroll-snap-align:start; display:grid; grid-template-columns:repeat(7,1fr); gap:4px; text-align:center; }
   .wday[data-a] { cursor:pointer; } .wday small { display:block; font-size:10px; opacity:.7; } .wday.sel { border-color:var(--fg); }
-  .tcount { color:var(--acc); } .wyest.bad { color:var(--bad); } .tmid { display:flex; align-items:center; justify-content:flex-end; gap:8px; margin-top:6px; }
+  .tcount { color:var(--acc); } .wyest.bad { color:var(--bad); } .tmid { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:6px; } .tmid .wnote { margin:0; } .tmid .seg { margin-left:auto; }
   .tprog { height:6px; border-radius:3px; background:var(--line); margin-top:8px; overflow:hidden; } .tprog i { display:block; height:100%; background:var(--good); border-radius:3px; }
   .seg { display:inline-flex; flex:none; border:1px solid var(--line); border-radius:8px; overflow:hidden; } .seg button { border:none; border-radius:0; padding:3px 10px; font-size:12px; background:transparent; } .seg button.on { background:var(--acc); color:#fff; }
   .gdot { display:block; width:5px; height:5px; border-radius:50%; margin:2px auto 0; } .gdot.on { background:var(--good); }
@@ -615,7 +615,7 @@ function todayHtml() {
   // today's number = dated tasks due (plus overdue) and weekly goals that can no longer skip today; optional sessions are shown apart
   const n = todayWeek ? pool.filter(t => todayPick(t) && !isGoal(t.repeat)).length : isToday ? dueNow + needed.length : cnt[day] || 0;
   const total = doneToday + dueNow + needed.length, pct = total ? Math.round(100 * doneToday / total) : 0;
-  const prog = isToday && !todayWeek && total ? `<div class="tprog"><i style="width:${pct}%"></i></div><div class="wnote">${doneToday} of ${total} done today</div>` : '';
+  const showProg = isToday && !todayWeek && total, prog = showProg ? `<div class="tprog"><i style="width:${pct}%"></i></div>` : '';
   const minDay = td, maxDay = addPeriod(td, 'daily', 7 * 259), pages = Math.min(260, Math.max(12, pg + 1));
   const strip = Array.from({ length: pages }, (_, k) => {
     const mon = addPeriod(td, 'daily', 7 * k);
@@ -630,7 +630,7 @@ function todayHtml() {
   const chip = `<label class="wchip"><span>${todayWeek ? wkText : isToday ? 'today' : dayLabel(day)} ▾</span><input class="tdate" type="date" value="${day}" min="${minDay}" max="${maxDay}" aria-label="go to a date"></label>`;
   const seg = `<span class="seg"><button data-a="todayview" data-v="day" class="${todayWeek ? '' : 'on'}">day</button><button data-a="todayview" data-v="week" class="${todayWeek ? 'on' : ''}">week</button></span>`;
   return `<div class="wins"><div class="wtop"><span class="wcount tcount">${n}</span><span class="wlabel">${isToday && !todayWeek ? 'to do' : 'due'} ${chip}</span>${isToday && overdue ? `<span class="wyest bad">${overdue} overdue</span>` : ''}</div>`
-    + `<div class="tmid">${seg}</div>${prog}<div class="wweek tweek">${strip}</div>${todayDay ? '<div class="wback tback" data-a="todayback">← back to today</div>' : ''}</div>`;
+    + `<div class="tmid">${showProg ? `<span class="wnote">${doneToday} of ${total} done today</span>` : ''}${seg}</div>${prog}<div class="wweek tweek">${strip}</div>${todayDay ? '<div class="wback tback" data-a="todayback">← back to today</div>' : ''}</div>`;
 }
 // open / done / total for one tag (an open weekly goal counts as open, its done sessions and missed rows are left out)
 function tagStats(g) {
