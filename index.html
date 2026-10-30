@@ -44,7 +44,6 @@ body, button, select, input, textarea { text-transform: lowercase; }
   .tprog { height:6px; border-radius:3px; background:var(--line); margin-top:8px; overflow:hidden; } .tprog i { display:block; height:100%; background:var(--good); border-radius:3px; }
   .seg { display:inline-flex; flex:none; border:1px solid var(--line); border-radius:8px; overflow:hidden; } .seg button { border:none; border-radius:0; padding:3px 10px; font-size:12px; background:transparent; } .seg button.on { background:var(--acc); color:#fff; }
   .gdot { display:block; width:5px; height:5px; border-radius:50%; margin:2px auto 0; } .gdot.on { background:var(--good); }
-  .tgoals { margin-top:10px; border-top:1px solid var(--line); padding-top:8px; } .tgoal { display:flex; align-items:center; gap:8px; font-size:13px; padding:2px 0; } .tgn { flex:none; max-width:35%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .tgoal .pips { flex:none; margin:0; gap:4px; } .tgoal .pip { width:12px; height:12px; } .tgs { margin-left:auto; color:var(--mut); text-align:right; } .need { color:var(--tmrw); font-weight:600; }
   .wday.heavy { background:var(--edit-bg); }
   .dayhead { display:flex; justify-content:space-between; font-size:13px; color:var(--mut); margin:12px 2px 4px; } .dayhead[data-a] { cursor:pointer; } .dayhead.over { color:var(--bad); }
   @keyframes slideInL { from { transform:translateX(24px); opacity:.3; } to { transform:none; opacity:1; } } @keyframes slideInR { from { transform:translateX(-24px); opacity:.3; } to { transform:none; opacity:1; } }
@@ -630,13 +629,12 @@ function todayHtml() {
       return `<div class="wday${dd === td ? ' today' : ''}${dd === todayDay ? ' sel' : ''}${c >= 5 ? ' heavy' : ''}" data-a="todayday" data-day="${dd}">${'SMTWTFS'[new Date(dd + 'T00:00').getDay()]}<b>${c || '·'}</b><small>${+dd.slice(8)}</small>${gd}</div>`;
     }).join('')}</div>`;
   }).join('');
-  const goalRows = (isToday && !todayWeek || todayWeek && cur) && goals.length ? `<div class="tgoals">${goals.map(x => `<div class="tgoal"><span class="tgn">${esc(x.g.task)}</span><span class="pips">${Array.from({ length: Math.min(10, x.n) }, (_, i) => `<i class="pip${i < x.got ? (x.left ? ' on' : ' met') : ''}"></i>`).join('')}</span><span class="tgs">${x.left ? `${x.left} to go · ${x.daysLeft} day${x.daysLeft === 1 ? '' : 's'} left` : '✓ met'}${x.needed ? ' <b class="need">needed today</b>' : ''}</span></div>`).join('')}</div>` : '';
   const lo = addPeriod(td, 'daily', 7 * pg), hi = addPeriod(lo, 'daily', 6);
   const wkText = cur ? 'next 7 days' : shortDay(lo) + '–' + (lo.slice(5, 7) === hi.slice(5, 7) ? +hi.slice(8) : shortDay(hi));
   const chip = `<label class="wchip"><span>${todayWeek ? wkText : isToday ? 'today' : dayLabel(day)} ▾</span><input class="tdate" type="date" value="${day}" min="${minDay}" max="${maxDay}" aria-label="go to a date"></label>`;
   const seg = `<span class="seg"><button data-a="todayview" data-v="day" class="${todayWeek ? '' : 'on'}">day</button><button data-a="todayview" data-v="week" class="${todayWeek ? 'on' : ''}">week</button></span>`;
   return `<div class="wins"><div class="wtop"><span class="wcount tcount">${n}</span><span class="wlabel">${isToday && !todayWeek ? 'to do' : 'due'} ${chip}</span>${isToday && overdue ? `<span class="wyest bad">${overdue} overdue</span>` : ''}</div>`
-    + `<div class="tmid"><span class="wcheer">${esc(coach)}</span>${seg}</div>${prog}<div class="wweek tweek">${strip}</div>${goalRows}${todayDay ? '<div class="wback tback" data-a="todayback">← back to today</div>' : ''}</div>`;
+    + `<div class="tmid"><span class="wcheer">${esc(coach)}</span>${seg}</div>${prog}<div class="wweek tweek">${strip}</div>${todayDay ? '<div class="wback tback" data-a="todayback">← back to today</div>' : ''}</div>`;
 }
 // open / done / total for one tag (an open weekly goal counts as open, its done sessions and missed rows are left out)
 function tagStats(g) {
