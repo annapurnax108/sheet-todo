@@ -41,6 +41,7 @@ body, button, select, input, textarea { text-transform: lowercase; }
   .wpage { flex:0 0 100%; scroll-snap-align:start; display:grid; grid-template-columns:repeat(7,1fr); gap:4px; text-align:center; }
   .wday[data-a] { cursor:pointer; } .wday small { display:block; font-size:10px; opacity:.7; } .wday.sel { border-color:var(--fg); }
   .tcount { color:var(--acc); } .wyest.bad { color:var(--bad); } .tmid { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:6px; } .tmid .wnote { margin:0; } .tmid .seg { margin-left:auto; }
+  .tseg { display:flex; gap:3px; margin-top:8px; } .tseg i { flex:1; height:6px; background:var(--line); border-radius:2px; } .tseg i.on { background:var(--good); } .tseg i:first-child { border-radius:3px 2px 2px 3px; } .tseg i:last-child { border-radius:2px 3px 3px 2px; }
   .tprog { height:6px; border-radius:3px; background:var(--line); margin-top:8px; overflow:hidden; } .tprog i { display:block; height:100%; background:var(--good); border-radius:3px; }
   .seg { display:inline-flex; flex:none; border:1px solid var(--line); border-radius:8px; overflow:hidden; } .seg button { border:none; border-radius:0; padding:3px 10px; font-size:12px; background:transparent; } .seg button.on { background:var(--acc); color:#fff; }
   .gdot { display:block; width:5px; height:5px; border-radius:50%; margin:2px auto 0; } .gdot.on { background:var(--good); }
@@ -614,8 +615,9 @@ function todayHtml() {
   cnt[td] = dueNow; // today's cell is today's list: due today plus anything overdue
   // today's number = dated tasks due (plus overdue) and weekly goals that can no longer skip today; optional sessions are shown apart
   const n = todayWeek ? pool.filter(t => todayPick(t) && !isGoal(t.repeat)).length : isToday ? dueNow + needed.length : cnt[day] || 0;
-  const total = doneToday + dueNow + needed.length, pct = total ? Math.round(100 * doneToday / total) : 0;
-  const showProg = isToday && !todayWeek && total, prog = showProg ? `<div class="tprog"><i style="width:${pct}%"></i></div>` : '';
+  const total = doneToday + dueNow + needed.length;
+  const showProg = isToday && !todayWeek && total, k = Math.min(total, 30), d = total <= 30 ? doneToday : Math.min(k, Math.floor(doneToday * k / total) || (doneToday ? 1 : 0)); // one segment per task (shares of the total above 30)
+  const prog = showProg ? `<div class="tseg">${Array.from({ length: k }, (_, i) => `<i${i < d ? ' class="on"' : ''}></i>`).join('')}</div>` : '';
   const minDay = td, maxDay = addPeriod(td, 'daily', 7 * 259), pages = Math.min(260, Math.max(12, pg + 1));
   const strip = Array.from({ length: pages }, (_, k) => {
     const mon = addPeriod(td, 'daily', 7 * k);
