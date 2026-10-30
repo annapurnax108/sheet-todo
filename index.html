@@ -85,6 +85,7 @@ body, button, select, input, textarea { text-transform: lowercase; }
   .row { display:flex; align-items:center; gap:10px; }
   .row .t { flex:1; word-break:break-word; } .done .t { text-decoration:line-through; color:var(--mut); }
   .item.win .t { text-decoration:none; color:var(--fg); } .tick { border:none; background:none; padding:0 4px; width:22px; font-size:16px; line-height:1; color:var(--good); font-weight:700; cursor:pointer; }
+  .duebtn:focus-visible { outline:2px solid var(--acc); outline-offset:2px; border-radius:4px; }
   .duebtn { cursor:pointer; text-decoration:underline dotted; text-underline-offset:3px; padding:4px 0; }
   .due { font-size:13px; color:var(--mut); } .due.over { color:var(--bad); font-weight:600; } .due.soon { color:var(--soon); font-weight:600; } .due.tmrw { color:var(--tmrw); font-weight:600; }
   .rep { color:var(--mut); font-size:12px; margin:4px 0 0 30px; }
@@ -405,8 +406,9 @@ const syncDue = box => {
 const shiftMonth = (ym, k) => { const d = new Date(+ym.slice(0, 4), +ym.slice(5, 7) - 1 + k, 1); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); };
 function monthGrid(ym, sel) {
   const first = ym + '-01', start = addPeriod(first, 'daily', -new Date(first + 'T00:00').getDay()), td = today();
-  return Array.from({ length: 42 }, (_, i) => { const d = addPeriod(start, 'daily', i);
-    return `<button type="button" data-day="${d}" class="${d.slice(0, 7) !== ym ? 'other' : ''}${d === td ? ' today' : ''}${d === sel ? ' sel' : ''}">${+d.slice(8)}</button>`; }).join('');
+  const days = Array.from({ length: 42 }, (_, i) => addPeriod(start, 'daily', i)), tab = days.includes(sel) ? sel : td.slice(0, 7) === ym ? td : first; // Tab stops on one day (selected, else today, else the 1st); arrow keys move
+  return days.map(d => {
+    return `<button type="button" data-day="${d}" class="${d.slice(0, 7) !== ym ? 'other' : ''}${d === td ? ' today' : ''}${d === sel ? ' sel' : ''}" tabindex="${d === tab ? 0 : -1}">${+d.slice(8)}</button>`; }).join('');
 }
 let dueTarget = null, dueMonth = ''; // dueTarget = { get, set, alive }: the calendar edits either a task form's date box or a task row's due date
 const boxTarget = box => ({ get: () => box.querySelector('input[name=due]').value, set: v => setDueBox(box, v), alive: () => box.isConnected });
@@ -425,13 +427,14 @@ function renderDue() {
   $('#dueHome').hidden = dueMonth === today().slice(0, 7);
   $('#dueGrid').innerHTML = monthGrid(dueMonth, v);
 }
-function openDue(target) { dueTarget = target; dueMonth = (target.get() || today()).slice(0, 7); renderDue(); $('#dueDlg').showModal(); document.activeElement?.blur(); } // no focus ring on the first button
+let dueKb = null; // opened from the keyboard: focus goes to a day, and back to the row's date afterwards (a mouse / touch open shows no focus ring)
+function openDue(target, kb) { dueTarget = target; dueKb = kb || null; dueMonth = (target.get() || today()).slice(0, 7); renderDue(); $('#dueDlg').showModal(); if (kb) $('#dueGrid [tabindex="0"]')?.focus(); else document.activeElement?.blur(); } // no focus ring on the first button
 function setDueBox(box, v) { box.querySelector('input[name=due]').value = v; if (box.closest('#add')) dueCleared = v === ''; syncDue(box); }
 function setDue(v) { const t = dueTarget; $('#dueDlg').close(); t.set(v); }
 function setDueDefault() { const i = $('#add').due, d = (filter === 'Today' && todayDay) || today(); if (!dueCleared && (!i.value || i.value === i.defaultValue)) i.value = d; i.defaultValue = d; syncDue(i.closest('.duebox')); }
 document.addEventListener('click', e => {
   const chip = e.target.closest?.('.duechip'), dlg = $('#dueDlg');
-  if (chip) { openDue(boxTarget(chip.parentNode)); return; }
+  if (chip) { openDue(boxTarget(chip.parentNode), e.detail === 0 ? { chip } : null); return; }
   if (!dlg.open) return;
   if (e.target === dlg) { dlg.close(); return; } // tap on the dimmed page behind the card
   const day = e.target.closest?.('#dueGrid [data-day]'), act = e.target.closest?.('#dueDlg [data-act]')?.dataset.act;
@@ -699,7 +702,7 @@ function render() {
       <div class="row">${plus ? `<button class="plus${met ? ' met' : ''}" data-a="log" aria-label="log a session">+1</button>` : win ? `<button class="tick" data-a="toggle" aria-label="undo done" title="undo">✓</button>` : `<input type="checkbox" data-a="toggle" ${t.status === 'done' ? 'checked' : ''}>`}
         <span class="t" data-a="edit">${esc(splitTags(t.task).title || t.task)}${tagChips(tagsOf(t))}${t.status === 'doing' ? ' <small>(doing)</small>' : ''}</span>
         ${!ed ? `<button class="nbtn${t.notes ? '' : ' empty'}${notesOpen.has(t.id) ? ' on' : ''}" data-a="note" aria-label="${t.notes ? 'show note' : 'add note'}">💬</button>` : ''}
-        ${win ? '' : `<span class="due ${goal ? '' : over ? 'over' : tmrw ? 'tmrw' : soon ? 'soon' : ''}${isOpen(t) && !goal && !ed ? ' duebtn' : ''}"${isOpen(t) && !goal && !ed ? ' data-a="due" role="button" aria-label="change due date"' : ''}>${esc(showDate(t.due) || (isOpen(t) && !goal && !ed ? 'no date' : ''))}</span>`}
+        ${win ? '' : `<span class="due ${goal ? '' : over ? 'over' : tmrw ? 'tmrw' : soon ? 'soon' : ''}${isOpen(t) && !goal && !ed ? ' duebtn' : ''}"${isOpen(t) && !goal && !ed ? ' data-a="due" role="button" tabindex="0" aria-label="change due date"' : ''}>${esc(showDate(t.due) || (isOpen(t) && !goal && !ed ? 'no date' : ''))}</span>`}
         ${t.status === 'done' && t.completed_at && !(filter === 'Wins' && !query) ? `<span class="due">done ${esc(showDate(t.completed_at))}</span>` : ''}
         ${t.status === 'missed' ? '<span class="due">missed</span>' : ''}</div>
       ${t.repeat ? `<div class="rep"${plus ? ' data-a="hist"' : ''}>↻ ${esc(repeatLabel(t.repeat))}${plus ? (histOpen.has(t.series) ? ' ▴ history' : ' ▾ history') : t.series ? ' · ' + seriesStats(t.series) : ''}</div>${plus ? goalBox(t) : ''}${plus && histOpen.has(t.series) ? histHtml(t) : ''}` : ''}
@@ -815,6 +818,21 @@ $('main').addEventListener('touchend', e => {
   if (Math.abs(dx) < 60 || Math.abs(dx) < 2 * Math.abs(dy) || dt > 600) return; // mostly sideways, deliberate and quick
   swipeFilter(dx < 0 ? 1 : -1);
 }, { passive: true });
+$('#list').addEventListener('keydown', e => { // the row's date is a role=button span: Enter / Space open the calendar like a click
+  const b = e.target.closest?.('.duebtn'); if (!b || e.key !== 'Enter' && e.key !== ' ') return;
+  e.preventDefault(); const id = b.closest('.item')?.dataset.id; if (id) openDue(taskTarget(id), { id });
+});
+$('#dueGrid').addEventListener('keydown', e => { // arrows move the focused day (a month edge flips the month); Enter / Space pick it natively
+  const k = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 }[e.key], cur = e.target.closest?.('[data-day]'); if (!k || !cur) return;
+  e.preventDefault(); const d = addPeriod(cur.dataset.day, 'daily', k);
+  if (d.slice(0, 7) !== dueMonth) { dueMonth = d.slice(0, 7); renderDue(); }
+  const dest = $('#dueGrid [data-day="' + d + '"]:not(.other)') || $('#dueGrid [data-day="' + d + '"]');
+  document.querySelectorAll('#dueGrid [tabindex="0"]').forEach(x => x.tabIndex = -1); dest.tabIndex = 0; dest.focus();
+});
+$('#dueDlg').addEventListener('close', () => { // keyboard users land back on the date they came from (the row is re-drawn after a change)
+  const kb = dueKb; dueKb = null; if (!kb) return;
+  const el = kb.id ? document.querySelector('.item[data-id="' + CSS.escape(kb.id) + '"] .duebtn') : kb.chip?.isConnected ? kb.chip : null; el?.focus();
+});
 $('#list').addEventListener('click', e => {
   const a = e.target.closest('[data-a]')?.dataset.a, item = e.target.closest('.item');
   if (a === 'winday') { const d = e.target.closest('[data-day]').dataset.day; winsDay = d === today() ? null : d; if (!winsDay) winsScroll = null; render(); return; }
@@ -832,7 +850,7 @@ $('#list').addEventListener('click', e => {
   const t = tasks.find(x => x.id === item.dataset.id);
   if (a === 'log') withUndo('Session logged', () => logSession(t), t.id);
   else if (a === 'notedone') { document.activeElement?.blur?.(); notesOpen.delete(t.id); render(); }
-  else if (a === 'due') openDue(taskTarget(t.id));
+  else if (a === 'due') openDue(taskTarget(t.id), e.detail === 0 ? { id: t.id } : null);
   else if (a === 'tagpick') { const g = e.target.closest('[data-tag]').dataset.tag; setFilter('#'); tagFilter = g; render(); fillAddTags(true); } // a tag chip opens that tag's dashboard
   else if (a === 'note') { const open = !notesOpen.has(t.id); open ? notesOpen.add(t.id) : notesOpen.delete(t.id); render(); if (open) liftNote(t.id, !t.notes); }
   else if (a === 'histall') { histAll.has(t.series) ? histAll.delete(t.series) : histAll.add(t.series); render(); }
