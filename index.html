@@ -830,6 +830,14 @@ $('#dueGrid').addEventListener('keydown', e => { // arrows move the focused day 
   const dest = $('#dueGrid [data-day="' + d + '"]:not(.other)') || $('#dueGrid [data-day="' + d + '"]');
   document.querySelectorAll('#dueGrid [tabindex="0"]').forEach(x => x.tabIndex = -1); dest.tabIndex = 0; dest.focus();
 });
+// Tab (forward) onto a form's date button opens the calendar by itself; any other key or a pointer press resets this, so closing the calendar (focus returns to the button) does not reopen it
+let tabFwd = false;
+document.addEventListener('keydown', e => { tabFwd = e.key === 'Tab' && !e.shiftKey; }, true);
+document.addEventListener('pointerdown', () => { tabFwd = false; }, true);
+document.addEventListener('focusin', e => {
+  const chip = e.target.closest?.('.duechip'); if (!chip || !tabFwd || $('#dueDlg').open) return;
+  tabFwd = false; openDue(boxTarget(chip.parentNode), { chip });
+});
 $('#dueDlg').addEventListener('close', () => { // keyboard users land back on the date they came from (the row is re-drawn after a change)
   const kb = dueKb; dueKb = null; if (!kb) return;
   const el = kb.id ? document.querySelector('.item[data-id="' + CSS.escape(kb.id) + '"] .duebtn') : kb.chip?.isConnected ? kb.chip : null; el?.focus();
