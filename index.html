@@ -8,8 +8,8 @@
 <link rel="icon" href="icon.svg">
 <meta name="theme-color" content="#1a73e8">
 <style>
-  :root { --bg:#fff; --fg:#202124; --mut:#5f6368; --line:#e0e0e0; --acc:#1a73e8; --card:#f8f9fa; --bad:#d93025; --soon:#1a73e8; --tmrw:#e8710a; --good:#188038; --bonus:#f9ab00; --edit-bg:#e8f0fe; --edit-line:#8ab4f8; --note-bg:#fff8e1; --note-line:#f2c94c; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#16181b; --fg:#e8eaed; --mut:#9aa0a6; --line:#3c4043; --acc:#8ab4f8; --card:#202327; --bad:#f28b82; --soon:#8ab4f8; --tmrw:#fcad70; --good:#81c995; --bonus:#fdd663; --edit-bg:#1f2a3d; --edit-line:#4a6fa5; --note-bg:#3a3320; --note-line:#a8872b; } }
+  :root { --bg:#fff; --fg:#202124; --mut:#5f6368; --line:#e0e0e0; --acc:#1a73e8; --goal:#b8962e; --goal-bg:#fbf6e4; --card:#f8f9fa; --bad:#d93025; --soon:#1a73e8; --tmrw:#e8710a; --good:#188038; --bonus:#f9ab00; --edit-bg:#e8f0fe; --edit-line:#8ab4f8; --note-bg:#fff8e1; --note-line:#f2c94c; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#16181b; --fg:#e8eaed; --mut:#9aa0a6; --line:#3c4043; --acc:#8ab4f8; --goal:#c9b458; --goal-bg:#33301f; --card:#202327; --bad:#f28b82; --soon:#8ab4f8; --tmrw:#fcad70; --good:#81c995; --bonus:#fdd663; --edit-bg:#1f2a3d; --edit-line:#4a6fa5; --note-bg:#3a3320; --note-line:#a8872b; } }
   * { box-sizing: border-box; }
 body, button, select, input, textarea { text-transform: lowercase; }
   body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.4 system-ui,sans-serif; }
@@ -98,6 +98,7 @@ body, button, select, input, textarea { text-transform: lowercase; }
   input[type=date]::-webkit-date-and-time-value { text-align:left; }
   .edit input[type=number] { padding-left:4px; padding-right:4px; text-align:center; }
   .item.met { border-left:4px solid var(--good); } .rep.met { color:var(--good); font-weight:600; } .plus.met { color:var(--good); border-color:var(--good); }
+  .item.goalitem { background:var(--goal-bg); border-color:color-mix(in srgb, var(--goal) 45%, var(--line)); border-left:4px solid var(--goal); } .item.goalitem.met { border-left-color:var(--good); } .goalitem .plus:not(.met) { color:var(--goal); border-color:var(--goal); }
   .rep[data-a=hist] { cursor:pointer; }
   .goalbox { margin:6px 0 0 30px; } .gtop { display:flex; align-items:center; gap:10px; flex-wrap:wrap; } .gcount { font-size:14px; font-weight:600; }
   .pips { display:flex; flex-wrap:wrap; gap:5px; } .pip { width:16px; height:16px; border-radius:50%; border:2px solid var(--line); display:inline-block; }
@@ -105,7 +106,7 @@ body, button, select, input, textarea { text-transform: lowercase; }
   .pipsep { width:1px; height:16px; background:var(--mut); margin:0 5px; opacity:.6; align-self:center; }
   .pip.bonus { width:14px; height:14px; border:0; border-radius:0; background:var(--bonus); clip-path:polygon(50% 0, 62% 36%, 100% 38%, 70% 60%, 80% 100%, 50% 76%, 20% 100%, 30% 60%, 0 38%, 38% 36%); align-self:center; }
   .bonus-text, .hbonus { color:var(--bonus); font-weight:700; } .hbonus { margin-left:6px; letter-spacing:0; }
-  .goalbox.met .gcount { color:var(--good); } .coach { font-size:13px; margin-top:4px; color:var(--mut); } .coach.tight { color:var(--tmrw); font-weight:600; } .coach.late { color:var(--bad); font-weight:600; }
+  .goalbox.met .gcount { color:var(--good); } .gcount.tight { color:var(--tmrw); } .gcount.late { color:var(--bad); } .gdays { margin-top:8px; } .wday.got { border-color:var(--good); } .wday.got b { color:var(--good); } .gdays .wday[data-a] { cursor:pointer; }
   .gextra { font-size:12px; color:var(--mut); margin-top:2px; }
   .hist { margin:4px 0 0 30px; font-size:12px; color:var(--mut); font-variant-numeric:tabular-nums; }
   .hnote { font-size:13px; color:var(--mut); white-space:pre-wrap; margin:0 0 6px 4px; }
@@ -282,21 +283,17 @@ function goalBox(t) {
   const bonus = Math.max(0, got - n); // sessions beyond the goal are shown apart from it: a divider, then star-shaped marks
   const pips = Array.from({ length: Math.min(10, n) }, (_, i) => `<i class="pip${i < got ? (met ? ' met' : ' on') : ''}"></i>`).join('')
     + (bonus ? `<span class="pipsep"></span>` + Array.from({ length: Math.min(6, bonus) }, () => '<i class="pip bonus"></i>').join('') : '');
-  const counts = met ? `✓ ${n} of ${n} · goal met!${bonus ? ` <span class="bonus-text">+${bonus} bonus</span>` : ''}` : `${got} done · ${left} to go`;
-  let coach, cls = 'ok';
-  if (met) coach = bonus ? `Goal crushed. ${bonus} bonus on top.` : 'Goal crushed. Anything extra is a bonus.';
-  else {
-    coach = !got ? `Fresh week. ${n} to go. Start with one today.` : left === 1 ? 'One more to go!' : got * 2 === n ? 'Halfway there.' : got * 2 > n ? 'Over halfway.' : 'Good start. Keep going.';
-    if (left > daysLeft) { cls = 'late'; coach += ` Only ${dl} left, every session still counts.`; }
-    else if (left === daysLeft) { cls = 'tight'; coach += ` ${left} to go in ${dl}, no days off.`; }
-    else coach += ` ${left} to go in ${dl}, on pace.`;
-  }
+  const counts = met ? `✓ ${n} of ${n} · goal met!${bonus ? ` <span class="bonus-text">+${bonus} bonus</span>` : ''}` : `${got} done · ${left} to go · ${dl} left`;
+  const late = !met && left > daysLeft, tight = !met && left === daysLeft;
+  const td = today(), start = addPeriod(t.due, 'daily', -6); // the Mon-Sun week the goal counts; today's card logs a session, the others only show the day's count
+  const dayCards = `<div class="wpage gdays">${Array.from({ length: 7 }, (_, i) => { const d = addPeriod(start, 'daily', i), c = tasks.filter(x => x.series === t.series && x.status === 'done' && x.completed_at === d).length;
+    return `<div class="wday${d === td ? ' today' : ''}${c ? ' got' : ''}${d > td ? ' future' : ''}"${d === td ? ' data-a="log" role="button" aria-label="log a session for today"' : ''}>${'MTWTFSS'[i]}<b>${c || '·'}</b></div>`; }).join('')}</div>`;
   const hist = goalHistory(t.series, t.due), prev = addPeriod(t.due, 'weekly', -1);
   let streak = met ? 1 : 0, expect = prev;
   for (const w of hist) { if (w.end !== expect || w.done < w.target) break; streak++; expect = addPeriod(expect, 'weekly', -1); }
   const last = hist[0] && hist[0].end === prev ? `last week ${hist[0].done} of ${hist[0].target}` : '';
   const extra = [streak ? `🔥 ${streak} week${streak === 1 ? '' : 's'} in a row` : '', last].filter(Boolean).join(' · ');
-  return `<div class="goalbox${met ? ' met' : ''}"><div class="gtop"><span class="pips" aria-label="${got} of ${n} done">${pips}</span><span class="gcount">${counts}</span></div><div class="coach ${cls}">${esc(coach)}</div>${extra ? `<div class="gextra">${esc(extra)}</div>` : ''}</div>`;
+  return `<div class="goalbox${met ? ' met' : ''}"><div class="gtop"><span class="pips" aria-label="${got} of ${n} done">${pips}</span><span class="gcount${late ? ' late' : tight ? ' tight' : ''}">${counts}</span></div>${dayCards}${extra ? `<div class="gextra">${esc(extra)}</div>` : ''}</div>`;
 }
 function histHtml(t) {
   const ws = goalHistory(t.series, t.due);
@@ -699,7 +696,7 @@ function render() {
     const tmrw = soon && t.due === inDays(1);
     const ed = editing === t.id, goal = isGoal(t.repeat), plus = goal && isOpen(t), win = t.status === 'done'; // done tasks read like the done-today / weekly-goal ones in every tab: green ✓ to undo, no strike-through, no due date
     const goalN = goal ? parseRepeat(t.repeat).n : 0, got = plus ? goalDone(t) : 0, met = plus && got >= goalN;
-    return head + `<div class="item ${isOpen(t) ? '' : 'done'}${win ? ' win' : ''}${met ? ' met' : ''}${ed ? ' editing' : notesOpen.has(t.id) ? ' noting' : ''}" data-id="${t.id}">
+    return head + `<div class="item ${isOpen(t) ? '' : 'done'}${win ? ' win' : ''}${plus ? ' goalitem' : ''}${met ? ' met' : ''}${ed ? ' editing' : notesOpen.has(t.id) ? ' noting' : ''}" data-id="${t.id}">
       <div class="row">${plus ? `<button class="plus${met ? ' met' : ''}" data-a="log" aria-label="log a session">+1</button>` : win ? `<button class="tick" data-a="toggle" aria-label="undo done" title="undo">✓</button>` : `<input type="checkbox" data-a="toggle" ${t.status === 'done' ? 'checked' : ''}>`}
         <span class="t" data-a="edit">${esc(splitTags(t.task).title || t.task)}${tagChips(tagsOf(t))}${t.status === 'doing' ? ' <small>(doing)</small>' : ''}</span>
         ${!ed ? `<button class="nbtn${t.notes ? '' : ' empty'}${notesOpen.has(t.id) ? ' on' : ''}" data-a="note" aria-label="${t.notes ? 'show note' : 'add note'}">💬</button>` : ''}
