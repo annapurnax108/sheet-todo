@@ -81,7 +81,7 @@ body, button, select, input, textarea { text-transform: lowercase; }
   .wday { border:1px solid var(--line); border-radius:8px; padding:4px 0; font-size:12px; color:var(--mut); } .wday b { display:block; font-size:16px; color:var(--fg); }
   .wday.today { border-color:var(--acc); background:var(--edit-bg); } .wday.today b { color:var(--acc); } .wday.future { opacity:.45; }
   .filters button.on { background:var(--acc); color:#fff; border-color:var(--acc); }
-  .item.swiping { transition:none; position:relative; } .item:not(.swiping) { transition:transform .15s; } .item.ready { border-color:var(--acc); } .due.moved { color:var(--acc); }
+  .item { touch-action:pan-y; } .item.swiping { transition:none; position:relative; will-change:transform; } .item:not(.swiping) { transition:transform .15s; } .item.ready { border-color:var(--acc); } .due.moved { color:var(--acc); }
   .item { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin-bottom:8px; }
   .row { display:flex; align-items:center; gap:10px; }
   .row .t { flex:1; word-break:break-word; } .done .t { text-decoration:line-through; color:var(--mut); }
@@ -830,16 +830,24 @@ $('#list').addEventListener('touchstart', e => {
 }, { passive: true });
 $('#list').addEventListener('touchmove', e => {
   if (!rowSwipe) return; const t = e.touches[0], dx = t.clientX - rowSwipe.x, dy = t.clientY - rowSwipe.y;
-  if (!rowSwipe.on && Math.abs(dy) > 14 && Math.abs(dy) > Math.abs(dx)) { rowSwipe = null; return; } // scrolling, not swiping
-  if (dx > 10 && Math.abs(dx) > 2 * Math.abs(dy)) { rowSwipe.on = true; rowSwipe.it.classList.add('swiping'); rowSwipe.it.style.transform = `translateX(${Math.min(dx, 120)}px)`; rowSwipe.it.classList.toggle('ready', dx >= 70); }
+  if (!rowSwipe.on) {
+    if (Math.abs(dy) > 12 && Math.abs(dy) > Math.abs(dx)) { rowSwipe = null; return; } // scrolling, not swiping
+    if (dx > 8 && dx > 1.5 * Math.abs(dy)) { rowSwipe.on = true; rowSwipe.it.classList.add('swiping'); } else return; // locked in: from here the row follows the finger
+  }
+  const x = dx <= 0 ? 0 : dx < 120 ? dx : 120 + (dx - 120) * .25; // slight resistance past the trigger distance
+  rowSwipe.it.style.transform = `translate3d(${x}px,0,0)`; rowSwipe.it.classList.toggle('ready', dx >= 70);
 }, { passive: true });
-$('#list').addEventListener('touchend', e => {
+const endRowSwipe = (e, cancel) => {
   const s = rowSwipe; rowSwipe = null; if (!s || !s.on) return;
-  const dx = e.changedTouches[0].clientX - s.x, go = dx >= 70 && Date.now() - s.at < 700;
-  s.it.classList.remove('swiping', 'ready'); s.it.style.transform = '';
+  const dx = cancel ? 0 : e.changedTouches[0].clientX - s.x, go = dx >= 70;
   swipe = null; // the tab swipe must not also fire
-  if (go) moveTomorrow(tasks.find(x => x.id === s.it.dataset.id));
-}, { passive: true });
+  const it = s.it; it.classList.remove('swiping', 'ready');
+  if (!go) { it.style.transform = ''; return; } // springs back (transition on .item)
+  it.style.transition = 'transform .16s ease-out, opacity .16s'; it.style.transform = 'translate3d(105%,0,0)'; it.style.opacity = '0'; // slide off, then move it
+  setTimeout(() => { it.style.transition = it.style.transform = it.style.opacity = ''; moveTomorrow(tasks.find(x => x.id === it.dataset.id)); }, 150);
+};
+$('#list').addEventListener('touchend', e => endRowSwipe(e, false), { passive: true });
+$('#list').addEventListener('touchcancel', e => endRowSwipe(e, true), { passive: true });
 $('main').addEventListener('touchstart', e => {
   const t = e.touches[0]; swipe = null;
   if (e.touches.length !== 1 || editing || document.querySelector('.qnote') || swipeBlocked(e.target)) return;
