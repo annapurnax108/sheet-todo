@@ -822,7 +822,7 @@ function swipeFilter(dir) {
 }
 let swipe = null;
 const swipeBlocked = el => !!el.closest?.('.wweek, .tweek, .tstrip, #filters, input, textarea, select, .edit, .qnote, #more, #searchRow, dialog'); // scrollable strips, fields and open cards keep their own gestures
-let rowSwipe = null; // swipe an open task row left (Today tab) to move it to tomorrow; it wins over the tab swipe
+let rowSwipe = null; // swipe an open task row right (Today tab) to move it to tomorrow; it wins over the tab swipe
 const rowOf = el => { const it = el.closest?.('#list .item'); return it && filter === 'Today' && !query && !editing && !it.classList.contains('goalitem') && !it.classList.contains('wingoal') && !it.querySelector('.edit, .qnote') && tasks.find(x => x.id === it.dataset.id && isOpen(x) && !isGoal(x.repeat)) ? it : null; };
 $('#list').addEventListener('touchstart', e => {
   const t = e.touches[0], it = e.touches.length === 1 && !swipeBlocked(e.target) && t.clientX >= 24 && t.clientX <= innerWidth - 24 ? rowOf(e.target) : null;
@@ -831,11 +831,11 @@ $('#list').addEventListener('touchstart', e => {
 $('#list').addEventListener('touchmove', e => {
   if (!rowSwipe) return; const t = e.touches[0], dx = t.clientX - rowSwipe.x, dy = t.clientY - rowSwipe.y;
   if (!rowSwipe.on && Math.abs(dy) > 14 && Math.abs(dy) > Math.abs(dx)) { rowSwipe = null; return; } // scrolling, not swiping
-  if (dx < -10 && Math.abs(dx) > 2 * Math.abs(dy)) { rowSwipe.on = true; rowSwipe.it.classList.add('swiping'); rowSwipe.it.style.transform = `translateX(${Math.max(dx, -120)}px)`; rowSwipe.it.classList.toggle('ready', dx <= -70); }
+  if (dx > 10 && Math.abs(dx) > 2 * Math.abs(dy)) { rowSwipe.on = true; rowSwipe.it.classList.add('swiping'); rowSwipe.it.style.transform = `translateX(${Math.min(dx, 120)}px)`; rowSwipe.it.classList.toggle('ready', dx >= 70); }
 }, { passive: true });
 $('#list').addEventListener('touchend', e => {
   const s = rowSwipe; rowSwipe = null; if (!s || !s.on) return;
-  const dx = e.changedTouches[0].clientX - s.x, go = dx <= -70 && Date.now() - s.at < 700;
+  const dx = e.changedTouches[0].clientX - s.x, go = dx >= 70 && Date.now() - s.at < 700;
   s.it.classList.remove('swiping', 'ready'); s.it.style.transform = '';
   swipe = null; // the tab swipe must not also fire
   if (go) moveTomorrow(tasks.find(x => x.id === s.it.dataset.id));
