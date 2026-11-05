@@ -81,6 +81,7 @@ body, button, select, input, textarea { text-transform: lowercase; }
   .wday { border:1px solid var(--line); border-radius:8px; padding:4px 0; font-size:12px; color:var(--mut); } .wday b { display:block; font-size:16px; color:var(--fg); }
   .wday.today { border-color:var(--acc); background:var(--edit-bg); } .wday.today b { color:var(--acc); } .wday.future { opacity:.45; }
   .filters button.on { background:var(--acc); color:#fff; border-color:var(--acc); }
+  .item.swiping { transition:none; position:relative; } .item:not(.swiping) { transition:transform .15s; } .item.ready { border-color:var(--acc); } .due.moved { color:var(--acc); }
   .item { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin-bottom:8px; }
   .row { display:flex; align-items:center; gap:10px; }
   .row .t { flex:1; word-break:break-word; } .done .t { text-decoration:line-through; color:var(--mut); }
@@ -192,7 +193,7 @@ const FLABEL = { Wins: '✓ today', Repeat: '↻' }; // button text where it dif
 let moreOpen = false;
 const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
 const save = (k, v) => localStorage.setItem(k, JSON.stringify(v));
-const norm = t => ({ repeat: '', repeat_from: '', series: '', ...t, status: String(t.status || 'todo').toLowerCase() }); // sheet may hold Done/done
+const norm = t => ({ repeat: '', repeat_from: '', series: '', show_on: '', ...t, status: String(t.status || 'todo').toLowerCase() }); // sheet may hold Done/done
 // project tags live in the task text as #hashtags (no sheet change): "email vendor #acme"
 const TAG_RE = /(^|\s)#([\p{L}\p{N}_-]+)/gu;
 const normTag = s => String(s || '').replace(/^#+/, '').trim().toLowerCase().replace(/\s+/g, '-').replace(/[^\p{L}\p{N}_-]/gu, '');
@@ -584,16 +585,19 @@ function winsHtml() {
 // "today" view: what is due, a strip of upcoming days with their task counts, and a day / week switch
 // the upcoming strip is rolling 7-day pages that start at today: page 0 = today … +6, page 1 = +7 … +13, and so on
 const dayPage = d => Math.max(0, Math.floor(Math.round((new Date(d + 'T00:00') - new Date(today() + 'T00:00')) / 864e5) / 7));
+// a task moved to another day keeps its due date: it is listed on show_on until that day has passed
+const shownDay = t => t.show_on && t.show_on >= today() ? t.show_on : t.due;
 const todayPick = t => {
   if (!isOpen(t)) return false;
   const td = today(), base = todayDay || td;
   if (todayWeek) {
     const pg = dayPage(base), cur = pg === 0, lo = addPeriod(td, 'daily', 7 * pg), hi = addPeriod(lo, 'daily', 6);
-    return isGoal(t.repeat) ? cur : !!t.due && ((cur && t.due < td) || (t.due >= lo && t.due <= hi));
+    const sd = shownDay(t);
+    return isGoal(t.repeat) ? cur : !!sd && ((cur && sd < td) || (sd >= lo && sd <= hi));
   }
-  return todayDay ? !isGoal(t.repeat) && t.due === todayDay : isGoal(t.repeat) || !!t.due && t.due <= td;
+  return todayDay ? !isGoal(t.repeat) && shownDay(t) === todayDay : isGoal(t.repeat) || !!t.due && shownDay(t) <= td;
 };
-const todayGroup = t => isGoal(t.repeat) ? 'z' : t.due < today() ? '0' : t.due; // week view: overdue first, then each day, goals last
+const todayGroup = t => isGoal(t.repeat) ? 'z' : shownDay(t) < today() ? '0' : shownDay(t); // week view: overdue first, then each day, goals last
 const dayLabel = d => new Date(d + 'T00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 const dayHeadHtml = (g, n) => `<div class="dayhead${g === '0' ? ' over' : ''}"${g.length === 10 ? ` data-a="todayday" data-day="${g}"` : ''}><span>${g === 'z' ? 'goals this week' : g === '0' ? 'overdue' : esc(dayLabel(g))}</span><span>${n}</span></div>`;
 // a weekly goal's state for today: sessions left, days left (counting today) and whether today can no longer be skipped
@@ -607,8 +611,8 @@ function todayHtml() {
   const pool = tasks.filter(matchesTag); // counts follow the tag filter
   const td = today(), day = todayDay || td, isToday = !todayDay, pg = dayPage(day), cur = pg === 0, cnt = {};
   const open = pool.filter(t => isOpen(t) && !isGoal(t.repeat) && t.due);
-  open.forEach(t => { cnt[t.due] = (cnt[t.due] || 0) + 1; });
-  const overdue = open.filter(t => t.due < td).length, dueNow = open.filter(t => t.due <= td).length;
+  open.forEach(t => { const sd = shownDay(t); cnt[sd] = (cnt[sd] || 0) + 1; });
+  const overdue = open.filter(t => shownDay(t) < td).length, dueNow = open.filter(t => shownDay(t) <= td).length;
   const goals = pool.filter(t => isOpen(t) && isGoal(t.repeat) && t.due >= td).map(goalState);
   const doneDated = pool.filter(t => t.status === 'done' && t.completed_at === td && !isGoal(t.repeat)).length, doneToday = doneDated; // weekly goals are not counted here
   const goalDays = new Set(pool.filter(t => t.status === 'done' && isGoal(t.repeat) && t.completed_at).map(t => t.completed_at));
@@ -700,6 +704,7 @@ function render() {
         <span class="t" data-a="edit">${esc(splitTags(t.task).title || t.task)}${tagChips(tagsOf(t))}${t.status === 'doing' ? ' <small>(doing)</small>' : ''}</span>
         ${!ed ? `<button class="nbtn${t.notes ? '' : ' empty'}${notesOpen.has(t.id) ? ' on' : ''}" data-a="note" aria-label="${t.notes ? 'show note' : 'add note'}">💬</button>` : ''}
         ${win ? '' : `<span class="due ${goal ? '' : over ? 'over' : tmrw ? 'tmrw' : soon ? 'soon' : ''}${isOpen(t) && !goal && !ed ? ' duebtn' : ''}"${isOpen(t) && !goal && !ed ? ' data-a="due" role="button" tabindex="0" aria-label="change due date"' : ''}>${esc(showDate(t.due) || (isOpen(t) && !goal && !ed ? 'no date' : ''))}</span>`}
+        ${isOpen(t) && !goal && t.show_on && t.show_on > today() ? `<span class="due moved" title="shown on ${esc(t.show_on)}">→ ${esc(showDate(t.show_on))}</span>` : ''}
         ${t.status === 'done' && t.completed_at && !(filter === 'Wins' && !query) ? `<span class="due">done ${esc(showDate(t.completed_at))}</span>` : ''}
         ${t.status === 'missed' ? '<span class="due">missed</span>' : ''}</div>
       ${t.repeat ? `${plus ? goalBox(t) : `<div class="rep">↻ ${esc(repeatLabel(t.repeat))}${t.series ? ' · ' + seriesStats(t.series) : ''}</div>`}${plus && histOpen.has(t.series) ? histHtml(t) : ''}` : ''}
@@ -712,7 +717,7 @@ function render() {
         <input name="every" type="number" min="1" value="${parseRepeat(t.repeat).n}" title="Repeat every" aria-label="Repeat every"${t.repeat ? '' : ' disabled'}>
         <select name="repeat_from"><option value="due" ${t.repeat_from !== 'done' ? 'selected' : ''}>from due date</option><option value="done" ${t.repeat_from === 'done' ? 'selected' : ''}>from completion</option></select></div>
         <textarea name="notes" rows="6" placeholder="Notes">${esc(t.notes)}</textarea><div class="tagsug" hidden></div>
-        <div class="btns"><button data-a="del">Delete</button><span>${t.repeat && !goal && isOpen(t) ? '<button data-a="skip">Skip</button> ' : ''}<button data-a="cancel">Cancel</button> <button class="primary" data-a="save">Save</button></span></div></div>` : ''}
+        <div class="btns"><button data-a="del">Delete</button><span>${t.repeat && !goal && isOpen(t) ? '<button data-a="skip">Skip</button> ' : ''}${isOpen(t) && !goal && filter === 'Today' ? '<button data-a="tomorrow">Tomorrow</button> ' : ''}<button data-a="cancel">Cancel</button> <button class="primary" data-a="save">Save</button></span></div></div>` : ''}
     </div>`;
   }).join('') || (winsHead ? '' : `<p style="color:var(--mut)">${query ? 'No matches.' : 'Nothing here.'}</p>`));
   document.querySelectorAll('.qnote').forEach(growNote);
@@ -799,6 +804,12 @@ $('#filters').addEventListener('click', e => {
   if ('more' in b.dataset) { moreOpen = !moreOpen; render(); }
   else if (b.dataset.f) setFilter(b.dataset.f);
 });
+// move a task to the day after the one being viewed (due date untouched); Undo puts it back
+function moveTomorrow(t) {
+  if (!t || !isOpen(t) || isGoal(t.repeat)) return;
+  const base = todayDay && todayDay > today() ? todayDay : today(), to = addPeriod(base, 'daily', 1);
+  withUndo(to === addPeriod(today(), 'daily', 1) ? 'Moved to tomorrow' : 'Moved to ' + shortDay(to), () => upsert({ ...t, show_on: to, updated_at: new Date().toISOString() }), t.id);
+}
 function setFilter(f) { filter = f; dueCleared = false; if (f === '#') { tagFilter = ''; tagReset(); } winsDay = null; winsScroll = null; todayDay = null; todayWeek = false; todayScroll = null; moreOpen = false; setStatusDefault(); setDueDefault(); render(); }
 // swipe the list sideways to step through the filters in the order they appear (left = next, right = previous)
 const FILTER_ORDER = [...MAIN, ...MORE];
@@ -811,6 +822,24 @@ function swipeFilter(dir) {
 }
 let swipe = null;
 const swipeBlocked = el => !!el.closest?.('.wweek, .tweek, .tstrip, #filters, input, textarea, select, .edit, .qnote, #more, #searchRow, dialog'); // scrollable strips, fields and open cards keep their own gestures
+let rowSwipe = null; // swipe an open task row left (Today tab) to move it to tomorrow; it wins over the tab swipe
+const rowOf = el => { const it = el.closest?.('#list .item'); return it && filter === 'Today' && !query && !editing && !it.classList.contains('goalitem') && !it.classList.contains('wingoal') && !it.querySelector('.edit, .qnote') && tasks.find(x => x.id === it.dataset.id && isOpen(x) && !isGoal(x.repeat)) ? it : null; };
+$('#list').addEventListener('touchstart', e => {
+  const t = e.touches[0], it = e.touches.length === 1 && !swipeBlocked(e.target) && t.clientX >= 24 && t.clientX <= innerWidth - 24 ? rowOf(e.target) : null;
+  rowSwipe = it ? { it, x: t.clientX, y: t.clientY, at: Date.now(), on: false } : null;
+}, { passive: true });
+$('#list').addEventListener('touchmove', e => {
+  if (!rowSwipe) return; const t = e.touches[0], dx = t.clientX - rowSwipe.x, dy = t.clientY - rowSwipe.y;
+  if (!rowSwipe.on && Math.abs(dy) > 14 && Math.abs(dy) > Math.abs(dx)) { rowSwipe = null; return; } // scrolling, not swiping
+  if (dx < -10 && Math.abs(dx) > 2 * Math.abs(dy)) { rowSwipe.on = true; rowSwipe.it.classList.add('swiping'); rowSwipe.it.style.transform = `translateX(${Math.max(dx, -120)}px)`; rowSwipe.it.classList.toggle('ready', dx <= -70); }
+}, { passive: true });
+$('#list').addEventListener('touchend', e => {
+  const s = rowSwipe; rowSwipe = null; if (!s || !s.on) return;
+  const dx = e.changedTouches[0].clientX - s.x, go = dx <= -70 && Date.now() - s.at < 700;
+  s.it.classList.remove('swiping', 'ready'); s.it.style.transform = '';
+  swipe = null; // the tab swipe must not also fire
+  if (go) moveTomorrow(tasks.find(x => x.id === s.it.dataset.id));
+}, { passive: true });
 $('main').addEventListener('touchstart', e => {
   const t = e.touches[0]; swipe = null;
   if (e.touches.length !== 1 || editing || document.querySelector('.qnote') || swipeBlocked(e.target)) return;
@@ -870,6 +899,7 @@ $('#list').addEventListener('click', e => {
   else if (a === 'histall') { histAll.has(t.series) ? histAll.delete(t.series) : histAll.add(t.series); render(); }
   else if (a === 'hist') { histOpen.has(t.series) ? histOpen.delete(t.series) : histOpen.add(t.series); render(); }
   else if (a === 'toggle') withUndo(isGoal(t.repeat) ? 'Session removed' : t.status === 'done' ? 'Reopened' : 'Marked done', () => { if (isGoal(t.repeat)) delSession(t); else if (t.status === 'done') reopen(t); else if (t.repeat) advance(t, 'done'); else upsert(withStatus(t, 'done')); }, t.id);
+  else if (a === 'tomorrow') { editing = null; moveTomorrow(t); }
   else if (a === 'skip') { editing = null; withUndo('Skipped', () => advance(t, 'missed'), t.id); }
   else if (a === 'edit') { editing = editing === t.id ? null : t.id; notesOpen.delete(t.id); render(); liftEdit(); if (editing) [60, 300].forEach(ms => setTimeout(() => editing === t.id && liftEdit(), ms)); }
   else if (a === 'cancel') { editing = null; render(); }
@@ -878,7 +908,7 @@ $('#list').addEventListener('click', e => {
     const q = n => item.querySelector(`[name=${n}]`).value; editing = null;
     const repeat = fmtRepeat(q('repeat'), q('every')), status = q('status');
     const pickT = pickedOf(item.querySelector('.tagpick'));
-    const edited = { ...t, task: composeEdit(q('task'), t.task, pickT) || t.task, due: isGoal(repeat) && !isGoal(t.repeat) ? weekEnd(today()) : q('due'), notes: q('notes'), repeat, repeat_from: repeat && !isGoal(repeat) ? q('repeat_from') : '', series: repeat ? t.series || uuid() : t.series };
+    const edited = { ...t, task: composeEdit(q('task'), t.task, pickT) || t.task, due: isGoal(repeat) && !isGoal(t.repeat) ? weekEnd(today()) : q('due'), show_on: q('due') === t.due && !isGoal(repeat) ? t.show_on || '' : '', notes: q('notes'), repeat, repeat_from: repeat && !isGoal(repeat) ? q('repeat_from') : '', series: repeat ? t.series || uuid() : t.series };
     withUndo('Changes saved', () => { if (repeat && !isGoal(repeat) && isOpen(t) && !isOpen({ status })) advance(edited, status); else upsert(withStatus(edited, status)); }, t.id);
   }
 });
